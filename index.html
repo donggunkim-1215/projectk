@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>ProjectK</title>
   <style>
     @font-face {
@@ -39,10 +39,17 @@
       margin: 0;
       padding: 0;
       width: 100vw;
+      /* 모바일 브라우저 주소창 영향 제거 — 우선순위: dvh > -webkit-fill-available > vh */
       height: 100vh;
+      height: -webkit-fill-available;
+      height: 100dvh;
       overflow: hidden;
       background: #1f2d12;
       font-family: 'BMJUA', sans-serif;
+      position: fixed;
+      top: 0;
+      left: 0;
+      overscroll-behavior: none;
     }
     /* 폰트가 게임 시작 전 메모리에 올라오도록 숨김 프리로더 */
     #font-preload {
@@ -59,6 +66,8 @@
     #game {
       width: 100vw;
       height: 100vh;
+      height: -webkit-fill-available;
+      height: 100dvh;
       display: flex;
       align-items: center;
       justify-content: center;
