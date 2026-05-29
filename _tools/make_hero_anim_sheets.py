@@ -54,6 +54,110 @@ HEROES = {
             'skill':  list(range(0, 11)),
         },
     },
+    'assassin_bakso': {
+        'src_root': r'C:\icecat\projectG\Recordings\백스오',
+        'anims': {
+            # idle 31f, yt sine 한 사이클 ~15f → 첫 사이클 6f
+            'idle':   [0, 3, 6, 9, 11, 14],
+            # walk 30f, 5-프레임 step cycle → 첫 1.4 cycle 7f
+            'walk':   [0, 1, 2, 3, 4, 5, 6],
+            # attack 38f에 swing 3회 반복 (xr peak 4/19/33). 첫 swing(0~13) 8f, peak frame 4
+            'attack': [0, 2, 3, 4, 6, 8, 10, 13],
+            # skill 40f에 4 사이클 → 첫 사이클 10f (peak 4-6)
+            'skill':  list(range(0, 10)),
+        },
+    },
+    'tank_dandan': {
+        'src_root': r'C:\icecat\projectG\Recordings\딴딴기사',
+        'anims': {
+            # idle 40f, yt sine 한 사이클 ~16f (trough 3, peak 11) → 첫 사이클 6f
+            'idle':   [0, 3, 6, 9, 12, 14],
+            # walk 40f, 5-프레임 step cycle → 첫 1.4 cycle 7f
+            'walk':   [0, 1, 2, 3, 4, 5, 6],
+            # attack 38f에 swing 3회 (xr peak 12/27 등). 첫 swing(0~15) 8f, peak frame 12-13
+            'attack': [0, 4, 8, 10, 11, 12, 13, 15],
+            # skill 42f에 swing 3회 반복 (yt peak 5/15/24). 첫 사이클 0~9 10f
+            'skill':  list(range(0, 10)),
+        },
+    },
+    'healer_grandpa': {
+        'src_root': r'C:\icecat\projectG\Recordings\응급할배',
+        'anims': {
+            # idle 30f, yt sine 한 사이클 ~15f (trough 0/15, peak 8) → 첫 사이클 6f
+            'idle':   [0, 3, 6, 9, 12, 14],
+            # walk 32f, 5-프레임 step cycle → 첫 1.4 cycle 7f
+            'walk':   [0, 1, 2, 3, 4, 5, 6],
+            # attack 35f에 swing ~14f (xr peak 4, 18). 첫 swing(0~13) 8f
+            'attack': [0, 2, 4, 6, 8, 10, 12, 14],
+            # skill 37f에 swing 3회 (xr peak 9/18/28). 첫 사이클 0~9 10f
+            'skill':  list(range(0, 10)),
+        },
+    },
+    'warrior_dark': {
+        'src_root': r'C:\icecat\projectG\Recordings\악흑의 기사',
+        'anims': {
+            # idle 25f, yt sine 한 사이클 ~14f (trough 1/16, peak 9) → 첫 사이클 6f
+            'idle':   [0, 3, 6, 9, 12, 14],
+            # walk 29f, 5-프레임 step cycle → 첫 1.4 cycle 7f
+            'walk':   [0, 1, 2, 3, 4, 5, 6],
+            # attack 42f에 swing 3회 (xr peak 8-11/22-25/37-38). 첫 swing(0~13) 8f, peak 10
+            'attack': [0, 4, 7, 8, 9, 10, 11, 13],
+            # skill 39f에 swing 3회 (yt peak 6/15/24). 첫 사이클 0~9 10f
+            'skill':  list(range(0, 10)),
+        },
+    },
+    'warrior_bandit': {
+        'src_root': r'C:\icecat\projectG\Recordings\산적 COMMON',
+        'anims': {
+            # idle 31f, yt sine 한 사이클 ~16f (peak 0/15, trough 9) → 첫 사이클 6f
+            'idle':   [0, 3, 6, 9, 12, 14],
+            # walk 29f, 5-프레임 step cycle → 첫 1.4 cycle 7f
+            'walk':   [0, 1, 2, 3, 4, 5, 6],
+            # attack 35f에 swing 2회 이상 (xr peak 5-6/20-21). 첫 swing(0~14) 8f
+            'attack': [0, 2, 4, 5, 6, 8, 11, 14],
+            # skill 29f에 swing 3회 (yt peak 2/12/21). 첫 사이클 0~9 10f
+            'skill':  list(range(0, 10)),
+        },
+    },
+    'archer_oneshot': {
+        'src_root': r'C:\icecat\projectG\Recordings\원샷원킬 UNCOMMON',
+        'anims': {
+            # idle 34f, yt sine 한 사이클 ~15f (trough 4, peak 12) → 첫 사이클 6f
+            'idle':   [0, 3, 6, 9, 12, 14],
+            # walk 31f, 5-프레임 step cycle → 첫 1.4 cycle 7f
+            'walk':   [0, 1, 2, 3, 4, 5, 6],
+            # attack 32f에 shot 2회 (xr peak 7/21). 첫 shot(0~13) 8f, peak 7
+            'attack': [0, 2, 4, 5, 6, 7, 10, 13],
+            # skill 31f에 3 사이클 (xr peak 0/9/19/29). 첫 사이클 0~9 10f
+            'skill':  list(range(0, 10)),
+        },
+    },
+    'mage_bomber': {
+        'src_root': r'C:\icecat\projectG\Recordings\폭탄중독병 UNCOMMON',
+        'anims': {
+            # idle 27f, yt sine 한 사이클 ~13f (peak 0/13, trough 6-7) → 첫 사이클 6f
+            'idle':   [0, 3, 6, 9, 11, 13],
+            # walk 29f, 5-프레임 step cycle → 첫 1.4 cycle 7f
+            'walk':   [0, 1, 2, 3, 4, 5, 6],
+            # attack 31f에 throw 2회 (xr peak 0/12-15, 27-28). 첫 throw(0~14) 8f
+            'attack': [0, 2, 4, 6, 8, 10, 12, 14],
+            # skill 27f에 cast 2-3회 (yt peak 6-7/16-17). 첫 사이클 0~9 10f
+            'skill':  list(range(0, 10)),
+        },
+    },
+    'mage_dark': {
+        'src_root': r'C:\icecat\projectG\Recordings\흑마법사 RARE',
+        'anims': {
+            # idle 32f, yt sine 한 사이클 ~15f → 첫 사이클 6f
+            'idle':   [0, 3, 6, 9, 12, 14],
+            # walk 37f, 11-프레임 cycle → 첫 7f
+            'walk':   [0, 1, 2, 3, 4, 5, 6],
+            # attack 36f에 cast 2-3회 (xr peak 3/17-18/32). 첫 cycle(0~14) 8f
+            'attack': [0, 2, 3, 4, 7, 9, 12, 14],
+            # skill 29f에 cast 3회 (xr peak 5/15/24). 첫 사이클 0~9 10f
+            'skill':  list(range(0, 10)),
+        },
+    },
 }
 
 BG_COLOR = np.array([38.0, 38.0, 38.0])

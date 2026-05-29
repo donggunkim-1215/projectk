@@ -81,6 +81,84 @@ let tavernNextRefillAt = 0; // 다음 무료 사용 가능 시점 (쿨다운 끝
 let tavernResetDay = '';
 const STAGE_CLEAR_BONUS_BASE = 50;
 
+// === 스테이지 돌파 보상 (Stage Level Reward — Layer Lab Reward_Roadmap 스타일) ===
+// 5~100 5단위 마일스톤 20개. 각각 보석 300 고정. stage > N 도달 시 수령 가능.
+const STAGE_REWARDS = Array.from({ length: 20 }, (_, i) => ({ stage: (i + 1) * 5, gems: 300 }));
+let claimedStageRewards; // 수령한 stage 번호 Set (create에서 초기화, save/load에 통합)
+
+function getStageRewardState(reward) {
+  if (!claimedStageRewards) return 'locked';
+  if (claimedStageRewards.has(reward.stage)) return 'claimed';
+  if (stage > reward.stage) return 'canClaim';
+  return 'locked';
+}
+
+function hasStageRewardReady() {
+  if (!claimedStageRewards) return false;
+  return STAGE_REWARDS.some((r) => stage > r.stage && !claimedStageRewards.has(r.stage));
+}
+
+function claimStageReward(scene, rewardStage) {
+  if (!claimedStageRewards || claimedStageRewards.has(rewardStage)) return false;
+  const r = STAGE_REWARDS.find((x) => x.stage === rewardStage);
+  if (!r || stage <= rewardStage) return false;
+  gems += r.gems;
+  claimedStageRewards.add(rewardStage);
+  updateGemsUI(scene);
+  updateTavernButton(scene);
+  saveGame(scene);
+  refreshStageRewardButton(scene);
+  return true;
+}
+
+// === 가이드 미션 (신규 온보딩 + 장기 성장, 약 150개 — 세나키 스타일 촘촘 진행) ===
+// 6개 카테고리(stage/summon/heroLevel/kills/castle/train) target 배열을
+// 진행도(인덱스/길이)로 정렬 → 카테고리 라운드로빈으로 자연스러운 흐름.
+// stage 미션 target = '클리어한 스테이지 수' (= 현재 stage-1). "스테이지 N 클리어" → target N.
+function buildGuideMissions() {
+  const groups = [
+    { type: 'stage',
+      T: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,22,24,26,28,30,33,36,40,45,50,55,60,65,70,75,80,85,90,95,100],
+      desc: (t) => '스테이지 ' + t + ' 클리어',
+      rew:  (t) => ({ gems: Math.min(2000, 30 + t * 4) }) },
+    { type: 'summon',
+      T: [1,2,3,4,5,7,10,13,17,22,28,35,45,55,70,90,115,145,180,220,270,330,400,480,580],
+      desc: (t) => '영웅 소환 ' + t + '회',
+      rew:  (t) => ({ gems: Math.min(2000, 40 + t * 2) }) },
+    { type: 'heroLevel',
+      T: [1,2,3,4,5,6,7,8,10,12,15,18,21,24,28,32,37,42,48,54,60],
+      desc: (t) => '영웅 레벨 ' + t + ' 달성',
+      rew:  (t) => ({ gems: Math.min(2000, 50 + t * 8) }) },
+    { type: 'kills',
+      T: [5,15,30,60,120,250,500,1000,1800,3000,4500,6500,9000,12000,16000,20000,25000,30000],
+      desc: (t) => '누적 ' + t + '마리 처치',
+      rew:  (t) => ({ gems: Math.min(2000, 30 + Math.floor(t / 20)) }) },
+    { type: 'castle',
+      T: [2,3,4,5,6,7,8,9,10,12,14,16,18,20,22,25,28,32,36,40,45,50,55,60,70,80],
+      desc: (t) => '성 레벨 ' + t + ' 달성',
+      rew:  (t) => ({ gems: Math.min(2000, 50 + t * 5) }) },
+    { type: 'train',
+      T: [1,2,3,4,5,6,8,10,12,14,17,20,25,30,40,55,75,100,135,180],
+      desc: (t) => '수련관 ' + t + '레벨 달성',
+      rew:  (t) => ({ gems: Math.min(2000, 40 + t * 3) }) },
+  ];
+  const all = [];
+  groups.forEach((g) => {
+    const denom = Math.max(1, g.T.length - 1);
+    g.T.forEach((t, idx) => {
+      all.push({ id: g.type + t, type: g.type, target: t, desc: g.desc(t), reward: g.rew(t), _p: idx / denom });
+    });
+  });
+  // 초반 가이드 미션 — 닉네임 변경(step ~6), 영웅 배치(step ~9)
+  all.push({ id: 'nickname1', type: 'nickname', target: 1, desc: '닉네임 변경하기',          reward: { gems: 150 }, _p: 0.05 });
+  all.push({ id: 'deploy1',   type: 'deploy',   target: 1, desc: '영웅 슬롯에 영웅 배치하기', reward: { gems: 150 }, _p: 0.08 });
+  // 진행도 균등 정렬
+  const catOrder = { kills: 0, stage: 1, summon: 2, heroLevel: 3, castle: 4, train: 5, nickname: 6, deploy: 7 };
+  all.sort((a, b) => a._p - b._p || catOrder[a.type] - catOrder[b.type]);
+  return all.map((m) => { delete m._p; return m; });
+}
+const GUIDE_MISSIONS = buildGuideMissions();
+
 // === Enhance (강화) ===
 // 같은 영웅 중복 획득 시 +1강화. 등급별로 강화 1당 스탯 증가율이 다름.
 // 캡 +999에서 COMMON ~6x → EXOTIC ~19x 가량.
@@ -89,6 +167,8 @@ const ENHANCE_RATE = {
   COMMON: 0.005, UNCOMMON: 0.006, RARE: 0.007, EPIC: 0.009,
   LEGENDARY: 0.012, MYTHIC: 0.015, EXOTIC: 0.018,
 };
+// 강화는 flat 가산 — 강화 1회당 (base × 등급)의 이 비율만큼 정수 증가(최소 +1). floor 소실 없이 매 강화 체감.
+const ENHANCE_FLAT_PER = 0.1;
 
 // === Class training (영웅 클래스 성장) ===
 // 골드로 클래스 단위 훈련. 같은 클래스 영웅 전원에게 atk/maxHp 보너스.
@@ -121,6 +201,18 @@ const STAT_GOLD_PCT_PER_POINT = 0.005;     // 시장: 골드 획득량 +0.5%/인
 const STAGE_DIFFICULTY_PER = 0.1;
 const STAGE_TRANSITION_MS = 2500;
 const ENEMY_SPAWN_DELAY = 3000;
+// === 스테이지 1~100 밸런스 ===
+// 수량(스폰 간격): stage 1~SPAWN_MAX_STAGE에서 ENEMY_SPAWN_DELAY → SPAWN_DELAY_MIN으로 선형 감소.
+// 이후엔 SPAWN_DELAY_MIN 고정 (수량 max). 스탯/보상은 stageScale(1+(s-1)*0.1)에 비례해 계속 증가.
+const SPAWN_MAX_STAGE = 50;
+const SPAWN_DELAY_MIN = 1000;
+function getStageSpawnDelay(s) {
+  const t = Math.min(1, Math.max(0, (s - 1) / Math.max(1, SPAWN_MAX_STAGE - 1)));
+  return Math.round(ENEMY_SPAWN_DELAY - (ENEMY_SPAWN_DELAY - SPAWN_DELAY_MIN) * t);
+}
+function getStageRewardScale(s) {
+  return 1 + (s - 1) * STAGE_DIFFICULTY_PER; // 스탯 스케일과 동일 — 난이도 비례 보상
+}
 
 // === Boss ===
 const BOSS_HP_PER_STAGE = 80;
@@ -208,7 +300,11 @@ const HEROES = {
     drawBody: makeHeroSpriteAnimDrawer('hero_warrior_handsome_idle', 'warrior_handsome_idle', 228, 48, 1),
     noRotate: true,
     portraitSheet: 'hero_warrior_handsome_idle', portraitSheetFrame: 0,
-    portraitSheetSize: { w: 178, h: 228 }, portraitScale: 0.63,
+    portraitSheetSize: { w: 178, h: 228 }, portraitScale: 1,
+    // 인벤토리 큰 portrait 전용 자산 (lobby_xxx PNG) — 큰 portrait 그리는 곳에서만 사용
+    portraitBig: 'lobby_warrior', portraitBigSize: { w: 287, h: 360 }, portraitBigScale: 0.63,
+    quotes: ['거울에서 빛이 나는군!', '내 미모가 곧 무기다!', '오늘도 잘생겼군.',
+             '적도 내게 반할 거야.', '이 얼굴이 검이다!', '머리가 흐트러졌군...'],
     animKeys: {
       idle:   'warrior_handsome_idle',
       walk:   'warrior_handsome_walk',
@@ -221,7 +317,10 @@ const HEROES = {
     drawBody: makeHeroSpriteAnimDrawer('hero_archer_robin_idle', 'archer_robin_idle', 252, 50, 1),
     noRotate: true,
     portraitSheet: 'hero_archer_robin_idle', portraitSheetFrame: 0,
-    portraitSheetSize: { w: 228, h: 252 }, portraitScale: 0.65,
+    portraitSheetSize: { w: 228, h: 252 }, portraitScale: 1,
+    portraitBig: 'lobby_archer', portraitBigSize: { w: 346, h: 403 }, portraitBigScale: 0.65,
+    quotes: ['한 발이면 충분해.', '바람을 읽는다.', '명중!',
+             '활시위가 떨린다.', '숲의 가호와 함께.', '저녁감이다.'],
     animKeys: {
       idle:   'archer_robin_idle',
       walk:   'archer_robin_walk',
@@ -235,7 +334,10 @@ const HEROES = {
     noRotate: true,
     attackType: 'icefall',
     portraitSheet: 'hero_mage_ice_idle', portraitSheetFrame: 0,
-    portraitSheetSize: { w: 194, h: 276 }, portraitScale: 0.65,
+    portraitSheetSize: { w: 194, h: 276 }, portraitScale: 1,
+    portraitBig: 'lobby_mage', portraitBigSize: { w: 309, h: 410 }, portraitBigScale: 0.65,
+    quotes: ['꽁꽁 얼려줄게~', '냉기 주의!', '얼음땡!',
+             '추워질 거야!', '얼어붙어라!', '으슬으슬?'],
     animKeys: {
       idle:   'mage_ice_idle',
       walk:   'mage_ice_walk',
@@ -243,16 +345,231 @@ const HEROES = {
       skill:  'mage_ice_skill',
       die:    'hero_shared_die',
     } },
+  mage_dark: { id: 'mage_dark', name: '흑마법사', class: 'mage', rarity: 'RARE',
+    bodyColor: 0x2A3458, bodyStroke: 0x10162A, crestColor: 0xB23AE8, accentColor: 0x8A2EC0,
+    drawBody: makeHeroSpriteAnimDrawer('hero_mage_dark_idle', 'mage_dark_idle', 209, 50, 1),
+    noRotate: true,
+    // 검은 일직선 빔 — 거의 전체 필드 사거리, 약한 단발. attackTarget에서 'beam' dispatch
+    attackType: 'beam',
+    baseStatOverride: {
+      maxHp: 26,
+      damage: 6,           // 낮음 (RARE 1.4× = 8)
+      defense: 1,
+      detectRange: 500,    // 거의 전체 필드 (GAME_W 540)
+      attackRange: 500,    // detect와 동일 — 발견 즉시 그 자리에서 발사
+      attackInterval: 750, // 적당히 빠른 빔 — 누적 데미지 확보
+      speed: 50,           // 느림 (제자리 캐스팅 컨셉)
+    },
+    portraitSheet: 'hero_mage_dark_idle', portraitSheetFrame: 0,
+    portraitSheetSize: { w: 141, h: 209 }, portraitScale: 1,
+    quotes: ['심연이 부른다.', '검은 줄기여...', '그림자가 깊다.',
+             '소멸하라.', '어둠은 모든 곳에 있다.', '빛은 거짓이다.'],
+    animKeys: {
+      idle:   'mage_dark_idle',
+      walk:   'mage_dark_walk',
+      attack: 'mage_dark_attack',
+      skill:  'mage_dark_skill',
+      die:    'hero_shared_die',
+    } },
+  mage_bomber: { id: 'mage_bomber', name: '폭탄중독병', class: 'mage', rarity: 'UNCOMMON',
+    bodyColor: 0xA88860, bodyStroke: 0x2A1810, crestColor: 0x1A1A1A, accentColor: 0xE85C2C,
+    drawBody: makeHeroSpriteAnimDrawer('hero_mage_bomber_idle', 'mage_bomber_idle', 165, 48, 1),
+    noRotate: true,
+    // 광역 폭탄 던지기 — class mage 기본 attackType='aoe' 사용
+    // aoeStrike가 heroDef.crestColor(=검정 폭탄)로 orb 그리고 drawExplosion 폭발
+    baseStatOverride: {
+      maxHp: 26,
+      damage: 18,           // 10 → 18 (광역 한 방 쌤; 중심 18 / 가장자리 ~10)
+      defense: 1,
+      detectRange: 250,
+      attackRange: 200,
+      attackInterval: 1800, // 1100 → 1800 (느린 공속)
+      speed: 55,
+      aoeRadius: 70,        // 50 → 70 (조금 더 넓은 폭발)
+    },
+    portraitSheet: 'hero_mage_bomber_idle', portraitSheetFrame: 0,
+    portraitSheetSize: { w: 145, h: 165 }, portraitScale: 1,
+    quotes: ['폭탄이다! 폭탄!', '빵! 빵빵빵!', '심지에 불 붙였어!',
+             '아 이 냄새~', '한 번만 더... 안 돼 두 번 더!', '폭탄 좀 더 없나?'],
+    animKeys: {
+      idle:   'mage_bomber_idle',
+      walk:   'mage_bomber_walk',
+      attack: 'mage_bomber_attack',
+      skill:  'mage_bomber_skill',
+      die:    'hero_shared_die',
+    } },
+  archer_oneshot: { id: 'archer_oneshot', name: '원샷원킬', class: 'archer', rarity: 'UNCOMMON',
+    bodyColor: 0x2E4A8B, bodyStroke: 0x121A38, crestColor: 0x4DB8FF, accentColor: 0x6A5A38,
+    drawBody: makeHeroSpriteAnimDrawer('hero_archer_oneshot_idle', 'archer_oneshot_idle', 201, 48, 1),
+    noRotate: true,
+    // ranged 한방 빌더 — 인식 살짝 ↑, 사거리 살짝 ↑, 공속 매우 ↓, damage 매우 ↑
+    baseStatOverride: {
+      maxHp: 22,            // 28 → 22 (조금 더 약함)
+      damage: 30,           // 6 → 30 (한방 매우 쌤)
+      defense: 1,
+      detectRange: 280,     // 240 → 280 (조금 더 넓음)
+      attackRange: 220,     // 200 → 220
+      attackInterval: 2200, // 600 → 2200 (매우 느림 ~3.7배)
+      speed: 65,
+    },
+    portraitSheet: 'hero_archer_oneshot_idle', portraitSheetFrame: 0,
+    portraitSheetSize: { w: 133, h: 201 }, portraitScale: 1,
+    quotes: ['...조준 완료.', '한 발, 한 명.', '숨 멈추고...',
+             '관통한다.', '명중률 100%.', '놓치지 않아.'],
+    animKeys: {
+      idle:   'archer_oneshot_idle',
+      walk:   'archer_oneshot_walk',
+      attack: 'archer_oneshot_attack',
+      skill:  'archer_oneshot_skill',
+      die:    'hero_shared_die',
+    } },
+  warrior_bandit: { id: 'warrior_bandit', name: '산적', class: 'warrior', rarity: 'COMMON',
+    bodyColor: 0x8B6B4F, bodyStroke: 0x3A2A1A, crestColor: 0xD8954A, accentColor: 0x5A3F28,
+    drawBody: makeHeroSpriteAnimDrawer('hero_warrior_bandit_idle', 'warrior_bandit_idle', 176, 42, 1),
+    noRotate: true,
+    // 진짜 제일 약한 영웅 — 미남전사(40/7/2)보다 더 낮게
+    baseStatOverride: {
+      maxHp: 20,
+      damage: 3,
+      defense: 1,
+      detectRange: 160,
+      attackRange: 28,
+      attackInterval: 600,
+      speed: 75,
+    },
+    // 적 타격마다 골드 +(1 + 영웅 레벨) × 시장 배율. 메모리: meleeStrike에서 처리
+    goldPerHit: 1,
+    portraitSheet: 'hero_warrior_bandit_idle', portraitSheetFrame: 0,
+    portraitSheetSize: { w: 143, h: 176 }, portraitScale: 1,
+    quotes: ['한 푼만 줍쇼!', '오늘 수입 어떨까~', '돈 되겠는데?',
+             '치킨이 사라지면 안 돼!', '여기도 동전, 저기도 동전!', '한탕 하자!'],
+    animKeys: {
+      idle:   'warrior_bandit_idle',
+      walk:   'warrior_bandit_walk',
+      attack: 'warrior_bandit_attack',
+      skill:  'warrior_bandit_skill',
+      die:    'hero_shared_die',
+    } },
+  warrior_dark: { id: 'warrior_dark', name: '악흑의 기사', class: 'warrior', rarity: 'EXOTIC',
+    bodyColor: 0x3A3540, bodyStroke: 0x14111A, crestColor: 0xC0C0C8, accentColor: 0x6A6470,
+    drawBody: makeHeroSpriteAnimDrawer('hero_warrior_dark_idle', 'warrior_dark_idle', 217, 68, 1),
+    noRotate: true,
+    // 특수 메커닉 없는 정통 전사 — class warrior base에 전반 약간씩 buff
+    baseStatOverride: {
+      maxHp: 50,            // 40 → 50 (×EXOTIC 4.5 = 225)
+      damage: 8,            // 7 → 8 (×EXOTIC 4.5 = 36)
+      defense: 4,           // 2 → 4 (×EXOTIC 4.5 = 18)
+      detectRange: 200,     // 170 → 200
+      attackRange: 35,      // 30 → 35
+      attackInterval: 650,  // 700 → 650 (살짝 빠른 평타)
+      speed: 72,            // 70 → 72
+    },
+    portraitSheet: 'hero_warrior_dark_idle', portraitSheetFrame: 0,
+    portraitSheetSize: { w: 145, h: 217 }, portraitScale: 1,
+    quotes: ['어둠이 너를 삼킨다.', '...침묵하라.', '비키지 않으면 베어내겠다.',
+             '두려워하라.', '쓸어버린다.', '내 길에 서지 마라.'],
+    animKeys: {
+      idle:   'warrior_dark_idle',
+      walk:   'warrior_dark_walk',
+      attack: 'warrior_dark_attack',
+      skill:  'warrior_dark_skill',
+      die:    'hero_shared_die',
+    } },
+  healer_grandpa: { id: 'healer_grandpa', name: '응급할배', class: 'mage', rarity: 'MYTHIC',
+    bodyColor: 0xF4ECDC, bodyStroke: 0x4A3818, crestColor: 0xF5D24A, accentColor: 0xCB3838,
+    drawBody: makeHeroSpriteAnimDrawer('hero_healer_grandpa_idle', 'healer_grandpa_idle', 184, 50, 1),
+    noRotate: true,
+    // 완전 힐러 — '공격'이 회복. attackTarget에서 healStrike로 dispatch
+    attackType: 'heal',
+    baseStatOverride: {
+      maxHp: 38,           // 약함 (×MYTHIC 3.2 = 121)
+      damage: 10,          // heal 양 (×MYTHIC 3.2 = 32 per cast)
+      defense: 1,
+      detectRange: 200,    // 부상자 탐지 범위
+      attackRange: 170,    // 힐 사거리 (mage와 비슷)
+      attackInterval: 800, // 빠른 힐 주기
+      speed: 60,
+    },
+    portraitSheet: 'hero_healer_grandpa_idle', portraitSheetFrame: 0,
+    portraitSheetSize: { w: 142, h: 184 }, portraitScale: 1,
+    quotes: ['아이고, 잠깐 가만있어봐.', '할애비가 고쳐주마.', '약 드시고 가셔!',
+             '에구구... 다친 사람 어딨노.', '이거 한 방이면 끄떡없어!', '뼈에 좋은 거여.'],
+    animKeys: {
+      idle:   'healer_grandpa_idle',
+      walk:   'healer_grandpa_walk',
+      attack: 'healer_grandpa_attack',
+      skill:  'healer_grandpa_skill',
+      die:    'hero_shared_die',
+    } },
+  tank_dandan: { id: 'tank_dandan', name: '딴딴기사', class: 'tank', rarity: 'LEGENDARY',
+    bodyColor: 0xB8C0C8, bodyStroke: 0x404048, crestColor: 0xE8B040, accentColor: 0x6A5230,
+    drawBody: makeHeroSpriteAnimDrawer('hero_tank_dandan_idle', 'tank_dandan_idle', 203, 66, 1),
+    noRotate: true,
+    // 매우 단단 + 낮은 공격력 (탱킹형). class tank base에 추가 override
+    baseStatOverride: {
+      maxHp: 110,       // base 80 → 110 (×LEGENDARY 2.4 = 264 실효)
+      damage: 3,        // base 4 → 3 (낮은 공격력)
+      defense: 14,      // base 5 → 14 (매우 단단)
+      attackInterval: 1100,
+    },
+    // 패시브 도발: tauntRange 안의 모든 적이 매 틱 forcedTarget=self로 강제 (작은 범위)
+    tauntRange: 78,
+    portraitSheet: 'hero_tank_dandan_idle', portraitSheetFrame: 0,
+    portraitSheetSize: { w: 150, h: 203 }, portraitScale: 1,
+    quotes: ['딴딴해!', '나에게 와라!', '꿈쩍도 안 한다!',
+             '여기 있다, 이놈들아!', '내가 막는다.', '뚫어보시지!'],
+    animKeys: {
+      idle:   'tank_dandan_idle',
+      walk:   'tank_dandan_walk',
+      attack: 'tank_dandan_attack',
+      skill:  'tank_dandan_skill',
+      die:    'hero_shared_die',
+    } },
+  assassin_bakso: { id: 'assassin_bakso', name: '백스오', class: 'assassin', rarity: 'EPIC',
+    bodyColor: 0xC8B89A, bodyStroke: 0x3A2E22, crestColor: 0xE8C474, accentColor: 0x5A4A38,
+    drawBody: makeHeroSpriteAnimDrawer('hero_assassin_bakso_idle', 'assassin_bakso_idle', 230, 48, 1),
+    noRotate: true,
+    // 짧은 사거리 + 발견 시 빠른 바람돌진 (engageOrChase에서 dashSpeedMult 적용)
+    statOverride: {
+      detectRange: 300,
+      attackRange: 32,
+      attackInterval: 380,
+      speed: 90,
+    },
+    dashSpeedMult: 3.4,   // chase 시 평소 speed × 이 배수 (바람돌진)
+    dashTrail: true,      // chase 중 잔상 ghost spawn
+    portraitSheet: 'hero_assassin_bakso_idle', portraitSheetFrame: 0,
+    portraitSheetSize: { w: 219, h: 230 }, portraitScale: 1,
+    quotes: ['바람보다 빠르게!', '눈깜빡할 새에...', '슈웅!',
+             '잡았다.', '여긴가, 저긴가!', '내 칼이 보였나?'],
+    animKeys: {
+      idle:   'assassin_bakso_idle',
+      walk:   'assassin_bakso_walk',
+      attack: 'assassin_bakso_attack',
+      skill:  'assassin_bakso_skill',
+      die:    'hero_shared_die',
+    } },
 };
 
-const STARTING_ROSTER = ['warrior_handsome', 'archer_robin', 'mage_ice'];
+const STARTING_ROSTER = ['warrior_handsome'];
 
 // === Globals ===
 let castleHP, castleMaxHp, castleLevel, castleExp, castleNickname;
 let castleStatAtk, castleStatDef, castleStatHp, castleStatPoints;
 let castleStatHeroDef, castleStatRespawn, castleStatGold;
 let kills, gold, gems, stage, isGameOver, scenePaused;
+// 누적 통계 (프로필 STATS) — 사용한 골드/보석 총량
+let totalGoldSpent = 0, totalGemsSpent = 0;
+// 튜토리얼 — 첫 진입 시에만 발동
+let tutorialDone = false;
+
+// 임시 닉네임 생성 — '기사_XXXXXX' 6자리 랜덤 숫자
+function generateGuestNickname() {
+  return '기사_' + Math.floor(100000 + Math.random() * 900000);
+}
 let autoBossSummon;
+let totalSummons; // 누적 소환 횟수 (가이드 미션 'summon' 판정 + 통계용)
+let guideStep;    // 현재 진행 중인 가이드 미션 인덱스 (>= GUIDE_MISSIONS.length면 전부 완료)
 // 클래스 훈련 레벨 (모든 클래스 0으로 초기화, 키는 CLASSES와 동일)
 let classTrainLevels;
 function makeEmptyClassTrain() {
@@ -276,18 +593,310 @@ let currentTime = 0;
 const config = {
   type: Phaser.AUTO,
   parent: 'game',
-  backgroundColor: '#7DAB4F',
+  transparent: true, // IntroScene 카메라가 LobbyScene 위에 alpha 0으로 합성될 수 있도록
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
     width: GAME_W * 2, height: GAME_H * 2,
   },
   render: { antialias: true },
-  scene: { preload, create, update },
+  // 씬 흐름: 로비(IntroScene overlay) → 로딩 → 인게임. IntroScene은 LobbyScene 위 launch.
+  scene: [
+    { key: 'LobbyScene',   preload: lobbyPreload,  create: lobbyCreate },
+    { key: 'IntroScene',   preload: introPreload,  create: introCreate },
+    { key: 'LoadingScene', preload: preload,       create: loadingCreate },
+    { key: 'GameScene',    create: create,         update: update },
+  ],
 };
 
+// === 로비 씬 (시작 화면) ============================================
+// === IntroScene — 프로토타입 안내 + 시작 버튼 (BGM unlock 트리거 역할) =========
+function introPreload() {
+  this.load.image('lobby_warrior', 'assets/lobby_warrior.png');
+  this.load.image('intro_char_frame', 'assets/ui/intro_char_frame.png'); // K-289 파란 원형 프레임
+  this.load.image('intro_btn_start', 'assets/ui/intro_btn_start.png');   // K-229 녹색 버튼
+  this.load.image('intro_icecat_logo', 'assets/ui/intro_icecat_logo.png'); // Icecat Games 로고
+  this.load.image('intro_bubble', 'assets/ui/intro_bubble.png');         // K-264 말풍선 (좌측 화살표)
+}
+
+function introCreate() {
+  const scene = this;
+  scene.cameras.main.setZoom(2).centerOn(GAME_W / 2, GAME_H / 2);
+  // 투명 카메라 — LobbyScene 위에 overlay로 합성 (game config.transparent=true 필수)
+  scene.cameras.main.setBackgroundColor('rgba(0,0,0,0)');
+
+  // 어두운 dim — 알파 0.95 (거의 검정, 뒤 아주 살짝만 비침). 풀스크린 어디든 클릭 시 진행.
+  const dimBg = scene.add.rectangle(GAME_W / 2, GAME_H / 2, GAME_W, GAME_H, 0x000000, 0.95)
+    .setDepth(0).setInteractive();
+
+  // === 캐릭터 영역 — K-289 파란 원형 프레임 + 캐릭터(아래 마스킹, 위로 살짝 삐져나옴) ===
+  // 말풍선 K-264의 좌측 화살표 끝이 캐릭터 머리 우측 옆에 닿게 좌측 배치
+  const frameX = 125, frameY = 515, frameSize = 144; // 이전 160에서 10% 감소 + 위로
+  const frameR = frameSize / 2;
+
+  // 1) 원형 프레임 먼저 그림 (캐릭터 아래)
+  scene.add.image(frameX, frameY, 'intro_char_frame').setDepth(5).setDisplaySize(frameSize, frameSize);
+
+  // 2) 마스크 — 메인 원(프레임 내부) + 위쪽 작은 원(머리 둥글게 삐져나오게)
+  const maskG = scene.add.graphics();
+  maskG.fillStyle(0xffffff, 1);
+  maskG.fillCircle(frameX, frameY, frameR - 12); // 메인 원 내부 (테두리 두께 보정)
+  // 위쪽 머리 영역 — 메인 원 상단에서 약간 위로 튀어나온 더 작은 원 (자연스러운 둥근 모양)
+  maskG.fillCircle(frameX, frameY - frameR + 18, frameR - 42);
+  maskG.setVisible(false);
+  const charMask = maskG.createGeometryMask();
+
+  // 3) 캐릭터 — 프레임 위(depth 6). 비율 유지하고 약간 위로(머리 노출)
+  const char = scene.add.image(frameX, frameY - 10, 'lobby_warrior').setDepth(6);
+  const cW = 144; // 프레임 사이즈와 동일
+  char.setDisplaySize(cW, cW * (char.height / char.width));
+  char.setMask(charMask);
+
+  // 4) 프레임 외곽 테두리 한 번 더(depth 7) — 캐릭터 가장자리를 깔끔하게 덮음. 단 머리 노출 부위는 안 가려야 하므로 같은 마스크의 inverse 영역을 안 가리도록, 프레임 본체 그대로 한 번 더 그리되 alpha만 살짝(외곽선 보강).
+  // → 단순화: 위쪽 머리 영역만 프레임 자산이 가리지 않도록 그대로 두고, 캐릭터의 좌우 가장자리는 마스크 원형이 잘라줌(원형보다 작은 반지름).
+
+  // 호흡 (미세)
+  const csx = char.scaleX, csy = char.scaleY;
+  scene.tweens.add({
+    targets: char, scaleX: csx * 1.04, scaleY: csy * 1.04,
+    duration: 1400, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+  });
+
+  // 말풍선 — K-264 자산 (좌측 화살표). 자산 화살표 끝이 캐릭터 머리 우측 옆 가리키게 좌-우 배치
+  // (한 열 정렬은 이 자산의 좌측 화살표와 맞지 않아 좌-우로 다시 배치)
+  const bubbleW = 340, bubbleH = 126;
+  const bubbleX = 332, bubbleY = 470;
+  scene.add.image(bubbleX, bubbleY, 'intro_bubble').setDepth(6).setDisplaySize(bubbleW, bubbleH);
+
+  // 말풍선 텍스트 — 본문 중앙(화살표 영역 제외 우측으로 살짝)
+  scene.add.text(bubbleX + 6, bubbleY - 4, '해당 게임은 프로토타입\n버전입니다!\n정식 출시를 응원해주세요!', {
+    fontFamily: 'BMJUA', fontSize: '17px', color: '#2A1A0E',
+    align: 'center', lineSpacing: 4,
+  }).setOrigin(0.5).setDepth(7);
+
+  // === "확인 ▶" 텍스트 (시작 버튼 대신) — 말풍선 우측 하단 끝 ===
+  // 말풍선 (bubbleX, bubbleY, bubbleW, bubbleH) 우측 하단 외곽 영역
+  const confirmX = bubbleX + bubbleW / 2 - 12;  // 말풍선 우측 끝에서 살짝 안쪽
+  const confirmY = bubbleY + bubbleH / 2 + 18;  // 말풍선 바로 아래
+  const confirmTxt = scene.add.text(confirmX, confirmY, '확인 ▶', {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '18px',
+    color: '#FFFFFF', stroke: '#000000', strokeThickness: 3,
+  }).setOrigin(1, 0.5).setDepth(8);
+
+  // 시선 유도 — 살짝 깜빡임
+  scene.tweens.add({
+    targets: confirmTxt, alpha: 0.55,
+    duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+  });
+
+  // 진행 함수 — BGM unlock + LobbyScene에 종료 알림 + IntroScene stop
+  let advanced = false;
+  const advance = () => {
+    if (advanced) return;
+    advanced = true;
+    confirmTxt.setScale(1);
+    try {
+      if (scene.sound && scene.sound.context && scene.sound.context.state === 'suspended') {
+        scene.sound.context.resume();
+      }
+    } catch (e) {}
+    try {
+      const lobby = scene.scene.get('LobbyScene');
+      if (lobby) lobby.events.emit('intro-closed');
+    } catch (e) {}
+    scene.scene.stop();
+  };
+
+  // 확인 버튼 hit zone — 누르는 반응(축소) 강조
+  const hit = scene.add.rectangle(confirmX - 35, confirmY, 100, 38, 0x000000, 0)
+    .setOrigin(0.5).setDepth(9).setInteractive({ useHandCursor: true });
+  hit.on('pointerdown', () => { confirmTxt.setScale(0.92); });
+  hit.on('pointerout',  () => { confirmTxt.setScale(1); });
+  hit.on('pointerup', advance);
+
+  // dim 풀스크린(어디든) 클릭으로도 진행
+  dimBg.on('pointerup', advance);
+
+  // 회사 로고 (하단) — Icecat 자산 이미지
+  const logo = scene.add.image(GAME_W / 2, GAME_H - 40, 'intro_icecat_logo').setDepth(5);
+  // 원본 비율 유지하면서 가로 130px로 표시
+  const logoW = 130;
+  logo.setDisplaySize(logoW, logoW * (logo.height / logo.width));
+}
+
+function lobbyPreload() {
+  this.load.image('lobby_bg', 'assets/lobby_bg.png');
+  this.load.image('lobby_heroes_group', 'assets/lobby_heroes_group.png');
+  // 로딩 화면(LoadingScene)이 쓸 리소스 — 미리 로드해 전역 캐시에 올림
+  this.load.image('ui_rb_bg', 'assets/ui/rb_bg.png');
+  this.load.image('ui_icon_castle', 'assets/ui/icon_castle.png');
+}
+
+function lobbyCreate() {
+  const scene = this;
+  scene.cameras.main.setZoom(2).centerOn(GAME_W / 2, GAME_H / 2); // 게임과 동일 540 좌표계
+  // 배경 — 정적 (줌 제거: 멀미 유발)
+  scene.add.image(GAME_W / 2, GAME_H / 2, 'lobby_bg').setDisplaySize(GAME_W, GAME_H).setDepth(0);
+
+  // ③ 햇살 광선 — 성 위 하늘에서 밝기 천천히 변동 (ADD 블렌드)
+  const sunGlow = scene.add.circle(GAME_W / 2, 210, 320, 0xFFFFEE, 0)
+    .setDepth(1).setBlendMode(Phaser.BlendModes.ADD);
+  scene.tweens.add({ targets: sunGlow, alpha: 0.18, duration: 2600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+
+  // ② 반짝이 파티클 — 하늘/성 영역에 별빛이 랜덤하게 반짝
+  scene.time.addEvent({ delay: 450, loop: true, callback: () => {
+    const sx = Phaser.Math.Between(40, GAME_W - 40);
+    const sy = Phaser.Math.Between(60, 440);
+    const st = scene.add.star(sx, sy, 4, 1.5, 5, 0xFFFFFF)
+      .setDepth(2).setAlpha(0).setScale(0.4).setBlendMode(Phaser.BlendModes.ADD);
+    scene.tweens.add({ targets: st, alpha: 0.95, scale: 1.1, duration: 550, yoyo: true, ease: 'Quad.easeOut', onComplete: () => st.destroy() });
+  } });
+
+  // ④ 떠다니는 빛 입자 — 아래에서 위로 천천히 떠오름 (ADD 블렌드)
+  scene.time.addEvent({ delay: 650, loop: true, callback: () => {
+    const px = Phaser.Math.Between(20, GAME_W - 20);
+    const p = scene.add.circle(px, GAME_H - 90, Phaser.Math.Between(2, 4), 0xFFF6C0, 0.7)
+      .setDepth(3).setBlendMode(Phaser.BlendModes.ADD);
+    scene.tweens.add({ targets: p, y: p.y - Phaser.Math.Between(220, 420), alpha: 0, duration: Phaser.Math.Between(3200, 5200), ease: 'Sine.easeIn', onComplete: () => p.destroy() });
+  } });
+
+  // 3인방 통짜 — 크게, 호흡(scale)만 (따로 둥실 X)
+  const heroes = scene.add.image(GAME_W / 2, 650, 'lobby_heroes_group').setDepth(5);
+  const W = 516; // 기존 430 +20%
+  heroes.setDisplaySize(W, W * (heroes.height / heroes.width));
+  const bsx = heroes.scaleX, bsy = heroes.scaleY;
+  scene.tweens.add({
+    targets: heroes, scaleX: bsx * 1.04, scaleY: bsy * 1.04,
+    duration: 1600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+  });
+  // "화면을 터치하세요" 깜빡임
+  const tapText = scene.add.text(GAME_W / 2, 880, '화면을 터치하세요', {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '26px',
+    color: '#FFFFFF', stroke: '#1F0410', strokeThickness: 5,
+  }).setOrigin(0.5).setDepth(10);
+  scene.tweens.add({ targets: tapText, alpha: 0.25, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+
+  // 로비 BGM — 비동기 로드(로비 진입 막지 않음) 후 자동 재생, 루프. 볼륨 0.7.
+  // 화면 터치(→ LoadingScene)할 때는 stop하지 않고 그대로 둠 — GameScene 진입 시점에 페이드 아웃.
+  const LOBBY_BGM_VOL = 0.7;
+  const startLobbyBgm = () => {
+    try {
+      let bgm = scene.sound.get('bgm_lobby');
+      if (!bgm) bgm = scene.sound.add('bgm_lobby', { loop: true, volume: LOBBY_BGM_VOL });
+      else { try { bgm.setVolume(LOBBY_BGM_VOL); } catch (e) {} }
+      if (!bgm.isPlaying) {
+        const play = () => { if (!bgm.isPlaying) bgm.play(); };
+        if (scene.sound.locked) scene.sound.once('unlocked', play); else play();
+      }
+    } catch (e) { console.warn('[BGM lobby] failed', e); }
+  };
+  if (scene.cache.audio.exists('bgm_lobby')) {
+    startLobbyBgm();
+  } else {
+    scene.load.audio('bgm_lobby', 'assets/audio/bgm_lobby.mp3');
+    scene.load.once('filecomplete-audio-bgm_lobby', startLobbyBgm);
+    scene.load.start();
+  }
+
+  // 인트로 오버레이가 닫히기 전엔 화면 클릭으로 진행 안 됨 (인트로 hit zone이 input 가로챔)
+  let canAdvance = false;
+  scene.events.once('intro-closed', () => { canAdvance = true; });
+  // 화면 클릭 → 로딩 씬. lobby BGM은 stop하지 않고 GameScene 진입 시 페이드 아웃됨.
+  scene.input.on('pointerdown', () => {
+    if (!canAdvance) return;
+    scene.scene.start('LoadingScene');
+  });
+
+  // 인트로 오버레이 launch (LobbyScene 위에 dim + 캐릭터/말풍선/시작버튼)
+  scene.scene.launch('IntroScene');
+}
+
+// === 로딩 씬 — 인게임 리소스 로드(preload) 끝나면 인게임 진입 ===
+function loadingCreate() {
+  this.scene.start('GameScene');
+}
+
 function preload() {
+  // === 로딩 화면 (LoadingScene 전용) — 검은 배경 + 우리 바 + 성 아이콘 + 문구 로테이션 ===
+  const cam = this.cameras.main;
+  const W = cam.width, H = cam.height; // native (1080×1920)
+  const cx = W / 2, cy = H * 0.56;
+  this.add.rectangle(cx, H / 2, W, H, 0x080810).setDepth(0); // 검은 배경
+
+  // 감성 아이콘(성) — 통통 + 살짝 흔들 (뚜딱뚜딱)
+  const licon = this.add.image(cx, cy - 130, 'ui_icon_castle').setDepth(2);
+  licon.setDisplaySize(150, 150 * (101 / 123));
+  this.tweens.add({ targets: licon, y: cy - 158, duration: 480, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+  this.tweens.add({ targets: licon, angle: { from: -7, to: 7 }, duration: 760, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+
+  // 프로그래스바 — 우리 리소스(rb_bg 캡슐 nineslice) 배경 + 둥근 fill
+  const barW = W * 0.6, barH = 42;
+  this.add.nineslice(cx, cy, 'ui_rb_bg', null, barW, barH, 7, 7, 7, 7).setDepth(1).setTint(0x16233F);
+  const fillMaxW = barW - 18, fillH = barH - 18, fillX = cx - fillMaxW / 2;
+  const fillG = this.add.graphics().setDepth(2);
+  this.load.on('progress', (v) => {
+    fillG.clear();
+    const w = Math.max(4, fillMaxW * v);
+    fillG.fillStyle(0xFFD24A, 1).fillRoundedRect(fillX, cy - fillH / 2, w, fillH, fillH / 2);
+  });
+
+  // 문구 로테이션 (바 밑)
+  const tips = ['왕국을 찾는 중...', '영웅 소환을 준비하는 중...', '기사단을 소집하는 중...', '성벽을 점검하는 중...', '전장으로 향하는 중...'];
+  const tip = this.add.text(cx, cy + 80, tips[0], {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '36px', color: '#F5E8C0', stroke: '#000000', strokeThickness: 5,
+  }).setOrigin(0.5).setDepth(2);
+  let ti = 0;
+  this.time.addEvent({ delay: 1300, loop: true, callback: () => { ti = (ti + 1) % tips.length; tip.setText(tips[ti]); } });
+
   this.load.image('castle', 'assets/castle.png');
+  for (let ci = 0; ci < 12; ci++) this.load.image('cloud_sil_' + ci, 'assets/cloud_sil_' + ci + '.png'); // 구름 그림자 실루엣
+  // 영웅 포트레이트 — 카드(인벤/주점/획득연출/상세창) 공용
+  this.load.image('lobby_warrior', 'assets/lobby_warrior.png');
+  this.load.image('lobby_archer', 'assets/lobby_archer.png');
+  this.load.image('lobby_mage', 'assets/lobby_mage.png');
+  // 스테이지 돌파 보상 (StageReward) UI 자산
+  this.load.image('sr_chest',         'assets/ui/sr_chest.png');         // HUD 진입 버튼
+  // Stage Reward 패널 자산 — Layer Lab Reward_Roadmap prefab 실제 sprite들
+  this.load.image('sr_panel',         'assets/ui/sr_panel.png');         // (legacy) 별 패턴 nineslice
+  this.load.image('sr_panel_bg',      'assets/ui/sr_panel_bg_v2.png');   // 패널 풀스크린 BG (v2 사용자 제공)
+  this.load.image('profile_modal_bg', 'assets/ui/profile_modal_bg.png'); // 프로필 모달 BG (K-335)
+  this.load.image('icon_pencil',      'assets/ui/icon_pencil_v2.png');   // 닉네임 변경 연필 아이콘 (Layer Lab PictoIcon_Pencil 64)
+  this.load.image('profile_frame',    'assets/ui/profile_frame_v2.png'); // 프로필 사진 프레임 (K-288 어두운 사각, v2)
+  this.load.image('btn_close_x',      'assets/ui/btn_close_x.png');      // 닫기 X 버튼 (K-240 빨간 원 + 흰 X)
+  this.load.image('nickname_modal_bg', 'assets/ui/nickname_modal_bg.png'); // 닉네임 변경 모달 BG (K-354)
+  this.load.image('input_box_bg',      'assets/ui/input_box_bg.png');     // 입력 박스 BG (K-364)
+  this.load.image('btn_blue',          'assets/ui/btn_blue.png');         // 파란 버튼 (K-231 #09)
+  this.load.image('btn_red',           'assets/ui/btn_red.png');          // 빨간 버튼 (K-231 #08)
+  this.load.image('stat_cell_bg',      'assets/ui/stat_cell_bg.png');     // 프로필 STATS 셀 BG (K-244)
+  this.load.image('profile_stat_stage',   'assets/ui/profile_stat_stage.png');
+  this.load.image('profile_stat_ranking', 'assets/ui/profile_stat_ranking.png');
+  this.load.image('profile_stat_gem',     'assets/ui/profile_stat_gem.png');
+  this.load.image('profile_stat_gold',    'assets/ui/profile_stat_gold.png');
+  this.load.image('profile_stat_kill',    'assets/ui/profile_stat_kill.png');
+  this.load.image('profile_stat_hero',    'assets/ui/profile_stat_hero.png');
+  this.load.image('tutorial_hand',        'assets/ui/tutorial_hand.png');     // 튜토리얼 손가락 가이드
+  this.load.image('tutorial_princess',    'assets/ui/tutorial_princess.png'); // 튜토리얼 공주 캐릭터
+  this.load.image('sr_track',         'assets/ui/sr_track.png');         // 세로 트랙
+  this.load.image('sr_node_on',       'assets/ui/sr_node_on.png');       // 활성 노드
+  this.load.image('sr_node_off',      'assets/ui/sr_node_off.png');      // 비활성 노드
+  this.load.image('sr_bubble_bg',     'assets/ui/sr_bubble_bg.png');     // (legacy) 말풍선
+  this.load.image('sr_bubble_arrow',  'assets/ui/sr_bubble_arrow.png');  // (legacy)
+  this.load.image('sr_bubble_shadow', 'assets/ui/sr_bubble_shadow.png'); // (legacy)
+  // 마일스톤 카드 — Layer Lab K-263 (캡슐 + 헥사곤 통합)
+  this.load.image('sr_card_claimed',  'assets/ui/sr_card_claimed.png');  // 보상 받은 단계
+  this.load.image('sr_card_can',      'assets/ui/sr_card_can.png');      // 수령 가능 (강조)
+  this.load.image('sr_card_locked',   'assets/ui/sr_card_locked.png');   // 예정
+  this.load.image('sr_hex_blue',      'assets/ui/sr_hex_blue.png');      // 헥사곤 블루(미달성)
+  this.load.image('sr_hex_yellow',    'assets/ui/sr_hex_yellow.png');    // 헥사곤 노랑(canClaim 강조)
+  this.load.image('sr_hex_border',    'assets/ui/sr_hex_border.png');    // 헥사곤 황금 강조 테두리
+  this.load.image('sr_hex_glow',      'assets/ui/sr_hex_glow.png');      // 헥사곤 황금 빛
+  this.load.image('sr_gems',          'assets/ui/sr_gems.png');          // 보석 아이콘(헥사곤 안)
+  this.load.image('sr_check',         'assets/ui/sr_check.png');         // claimed 체크
+  this.load.image('sr_back',          'assets/ui/sr_back.png');          // (legacy) 흰 화살표만
+  this.load.image('sr_back_btn',      'assets/ui/sr_back_btn.png');      // 뒤로가기 버튼 (어두운 BG + 화살표)
+  this.load.image('sr_info',          'assets/ui/sr_info.png');          // info 'i'
+  this.load.image('sr_ribbon',        'assets/ui/sr_ribbon.png');        // (legacy) Next 리본
+  this.load.image('sr_next_flag',     'assets/ui/sr_next_flag.png');     // Next 깃발 (K-305 빨간 깃발, nineslice로 가로 stretch)
   // 미남 전사 anim sprite sheets — 각 anim별 frame size 다름
   this.load.spritesheet('hero_warrior_handsome_idle',   'assets/hero_warrior_handsome_idle.png',
     { frameWidth: 178, frameHeight: 228 });
@@ -315,6 +924,78 @@ function preload() {
     { frameWidth: 298, frameHeight: 291 });
   this.load.spritesheet('hero_mage_ice_skill',  'assets/hero_mage_ice_skill.png',
     { frameWidth: 290, frameHeight: 322 });
+  // 백스오 (assassin_bakso, EPIC 바람돌진 melee)
+  this.load.spritesheet('hero_assassin_bakso_idle',   'assets/hero_assassin_bakso_idle.png',
+    { frameWidth: 219, frameHeight: 230 });
+  this.load.spritesheet('hero_assassin_bakso_walk',   'assets/hero_assassin_bakso_walk.png',
+    { frameWidth: 223, frameHeight: 217 });
+  this.load.spritesheet('hero_assassin_bakso_attack', 'assets/hero_assassin_bakso_attack.png',
+    { frameWidth: 332, frameHeight: 281 });
+  this.load.spritesheet('hero_assassin_bakso_skill',  'assets/hero_assassin_bakso_skill.png',
+    { frameWidth: 283, frameHeight: 352 });
+  // 딴딴기사 (tank_dandan, LEGENDARY 도발 패시브 tank)
+  this.load.spritesheet('hero_tank_dandan_idle',   'assets/hero_tank_dandan_idle.png',
+    { frameWidth: 150, frameHeight: 203 });
+  this.load.spritesheet('hero_tank_dandan_walk',   'assets/hero_tank_dandan_walk.png',
+    { frameWidth: 155, frameHeight: 190 });
+  this.load.spritesheet('hero_tank_dandan_attack', 'assets/hero_tank_dandan_attack.png',
+    { frameWidth: 229, frameHeight: 196 });
+  this.load.spritesheet('hero_tank_dandan_skill',  'assets/hero_tank_dandan_skill.png',
+    { frameWidth: 210, frameHeight: 327 });
+  // 응급할배 (healer_grandpa, MYTHIC 완전 힐러 — '공격'이 회복)
+  this.load.spritesheet('hero_healer_grandpa_idle',   'assets/hero_healer_grandpa_idle.png',
+    { frameWidth: 142, frameHeight: 184 });
+  this.load.spritesheet('hero_healer_grandpa_walk',   'assets/hero_healer_grandpa_walk.png',
+    { frameWidth: 146, frameHeight: 175 });
+  this.load.spritesheet('hero_healer_grandpa_attack', 'assets/hero_healer_grandpa_attack.png',
+    { frameWidth: 159, frameHeight: 178 });
+  this.load.spritesheet('hero_healer_grandpa_skill',  'assets/hero_healer_grandpa_skill.png',
+    { frameWidth: 173, frameHeight: 183 });
+  // 악흑의 기사 (warrior_dark, EXOTIC 정통 탄탄 기사 — 특수 메커닉 없음)
+  this.load.spritesheet('hero_warrior_dark_idle',   'assets/hero_warrior_dark_idle.png',
+    { frameWidth: 145, frameHeight: 217 });
+  this.load.spritesheet('hero_warrior_dark_walk',   'assets/hero_warrior_dark_walk.png',
+    { frameWidth: 149, frameHeight: 204 });
+  this.load.spritesheet('hero_warrior_dark_attack', 'assets/hero_warrior_dark_attack.png',
+    { frameWidth: 263, frameHeight: 210 });
+  this.load.spritesheet('hero_warrior_dark_skill',  'assets/hero_warrior_dark_skill.png',
+    { frameWidth: 281, frameHeight: 269 });
+  // 산적 (warrior_bandit, COMMON 최약체 + 타격당 골드 획득)
+  this.load.spritesheet('hero_warrior_bandit_idle',   'assets/hero_warrior_bandit_idle.png',
+    { frameWidth: 143, frameHeight: 176 });
+  this.load.spritesheet('hero_warrior_bandit_walk',   'assets/hero_warrior_bandit_walk.png',
+    { frameWidth: 148, frameHeight: 166 });
+  this.load.spritesheet('hero_warrior_bandit_attack', 'assets/hero_warrior_bandit_attack.png',
+    { frameWidth: 162, frameHeight: 167 });
+  this.load.spritesheet('hero_warrior_bandit_skill',  'assets/hero_warrior_bandit_skill.png',
+    { frameWidth: 175, frameHeight: 177 });
+  // 원샷원킬 (archer_oneshot, UNCOMMON 매우 느린 강타 ranged)
+  this.load.spritesheet('hero_archer_oneshot_idle',   'assets/hero_archer_oneshot_idle.png',
+    { frameWidth: 133, frameHeight: 201 });
+  this.load.spritesheet('hero_archer_oneshot_walk',   'assets/hero_archer_oneshot_walk.png',
+    { frameWidth: 136, frameHeight: 188 });
+  this.load.spritesheet('hero_archer_oneshot_attack', 'assets/hero_archer_oneshot_attack.png',
+    { frameWidth: 209, frameHeight: 190 });
+  this.load.spritesheet('hero_archer_oneshot_skill',  'assets/hero_archer_oneshot_skill.png',
+    { frameWidth: 238, frameHeight: 196 });
+  // 폭탄중독병 (mage_bomber, UNCOMMON 느린 광역 폭탄 던지기)
+  this.load.spritesheet('hero_mage_bomber_idle',   'assets/hero_mage_bomber_idle.png',
+    { frameWidth: 145, frameHeight: 165 });
+  this.load.spritesheet('hero_mage_bomber_walk',   'assets/hero_mage_bomber_walk.png',
+    { frameWidth: 150, frameHeight: 156 });
+  this.load.spritesheet('hero_mage_bomber_attack', 'assets/hero_mage_bomber_attack.png',
+    { frameWidth: 167, frameHeight: 158 });
+  this.load.spritesheet('hero_mage_bomber_skill',  'assets/hero_mage_bomber_skill.png',
+    { frameWidth: 176, frameHeight: 164 });
+  // 흑마법사 (mage_dark, RARE 전체 필드 검은 빔 — 약한 단발 single-target)
+  this.load.spritesheet('hero_mage_dark_idle',   'assets/hero_mage_dark_idle.png',
+    { frameWidth: 141, frameHeight: 209 });
+  this.load.spritesheet('hero_mage_dark_walk',   'assets/hero_mage_dark_walk.png',
+    { frameWidth: 147, frameHeight: 216 });
+  this.load.spritesheet('hero_mage_dark_attack', 'assets/hero_mage_dark_attack.png',
+    { frameWidth: 235, frameHeight: 225 });
+  this.load.spritesheet('hero_mage_dark_skill',  'assets/hero_mage_dark_skill.png',
+    { frameWidth: 233, frameHeight: 246 });
   // 영웅 공용 die anim (묘비 변환) — 모든 영웅이 같은 sprite sheet 공유
   this.load.spritesheet('hero_shared_die', 'assets/hero_shared_die.png',
     { frameWidth: 111, frameHeight: 167 });
@@ -493,6 +1174,8 @@ function preload() {
     const id = String(i).padStart(2, '0');
     this.load.image(`portrait_${id}`, `assets/portraits/LordPortrait_${id}.png`);
   }
+  // BGM — 필드 화면 공용 (사막 등 다른 환경도 추후 분기)
+  this.load.audio('bgm_field', 'assets/audio/bgm_field.mp3');
 }
 
 // 고해상도 2D 일러스트(SD 캐주얼 스타일)용 mipmap.
@@ -548,6 +1231,12 @@ function saveGame(scene) {
     autoBossSummon,
     classTrainLevels: classTrainLevels || makeEmptyClassTrain(),
     tavernFreeStock, tavernNextRefillAt, tavernResetDay,
+    totalSummons, guideStep,
+    claimedStageRewards: Array.from(claimedStageRewards || []),
+    userProfileKey: scene.userProfileKey || null,
+    playerId: scene.playerId || null,
+    totalGoldSpent, totalGemsSpent,
+    tutorialDone,
   };
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); }
   catch (e) { console.warn('save failed', e); }
@@ -607,6 +1296,151 @@ function loadGame() {
   } catch (e) { return null; }
 }
 
+// === SFX synthesizer (Web Audio API) =======================================
+// 외부 파일 없이 런타임 합성 — 공격/타격/피격 기본 효과음. BGM과는 별도 컨텍스트.
+let _sfxCtx = null, _sfxMaster = null;
+const _sfxLastAt = {};
+function _ensureSfxCtx() {
+  if (!_sfxCtx) {
+    try {
+      _sfxCtx = new (window.AudioContext || window.webkitAudioContext)();
+      _sfxMaster = _sfxCtx.createGain();
+      _sfxMaster.gain.value = 0.5;
+      _sfxMaster.connect(_sfxCtx.destination);
+    } catch (e) { return null; }
+  }
+  if (_sfxCtx.state === 'suspended') { try { _sfxCtx.resume(); } catch (e) {} }
+  return _sfxCtx;
+}
+function _sfxThrottle(key, minGapMs) {
+  const now = performance.now();
+  if (_sfxLastAt[key] && now - _sfxLastAt[key] < minGapMs) return false;
+  _sfxLastAt[key] = now;
+  return true;
+}
+function _sfxNoiseBuffer(ctx, durSec, decayPow) {
+  const buf = ctx.createBuffer(1, Math.max(1, Math.floor(ctx.sampleRate * durSec)), ctx.sampleRate);
+  const data = buf.getChannelData(0);
+  const n = data.length;
+  for (let i = 0; i < n; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, decayPow);
+  return buf;
+}
+// 근접 휘두름 — 짧고 하강하는 톤 (whoosh)
+function playSfxSwing() {
+  const ctx = _ensureSfxCtx(); if (!ctx) return;
+  if (!_sfxThrottle('swing', 35)) return;
+  const t = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(620, t);
+  osc.frequency.exponentialRampToValueAtTime(140, t + 0.12);
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(0.18, t + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+  const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1800;
+  osc.connect(lp).connect(g).connect(_sfxMaster);
+  osc.start(t); osc.stop(t + 0.14);
+}
+// 화살 — 짧고 높은 휙
+function playSfxArrow() {
+  const ctx = _ensureSfxCtx(); if (!ctx) return;
+  if (!_sfxThrottle('arrow', 30)) return;
+  const t = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(1500, t);
+  osc.frequency.exponentialRampToValueAtTime(420, t + 0.08);
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(0.14, t + 0.008);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+  osc.connect(g).connect(_sfxMaster);
+  osc.start(t); osc.stop(t + 0.1);
+}
+// 마법 — shimmery (오버레이된 사인파 3개, freq 상승)
+function playSfxMagic() {
+  const ctx = _ensureSfxCtx(); if (!ctx) return;
+  if (!_sfxThrottle('magic', 40)) return;
+  const t = ctx.currentTime;
+  for (let i = 0; i < 3; i++) {
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'sine';
+    const f0 = 520 + i * 180;
+    osc.frequency.setValueAtTime(f0, t + i * 0.018);
+    osc.frequency.exponentialRampToValueAtTime(f0 * 2.6, t + 0.18 + i * 0.018);
+    g.gain.setValueAtTime(0, t + i * 0.018);
+    g.gain.linearRampToValueAtTime(0.07, t + 0.03 + i * 0.018);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.22 + i * 0.018);
+    osc.connect(g).connect(_sfxMaster);
+    osc.start(t + i * 0.018); osc.stop(t + 0.24 + i * 0.018);
+  }
+}
+// 타격 — 노이즈 burst + low thump (퍽)
+function playSfxHit() {
+  const ctx = _ensureSfxCtx(); if (!ctx) return;
+  if (!_sfxThrottle('hit', 25)) return;
+  const t = ctx.currentTime;
+  const noise = ctx.createBufferSource();
+  noise.buffer = _sfxNoiseBuffer(ctx, 0.08, 2);
+  const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1100;
+  const nG = ctx.createGain(); nG.gain.value = 0.32;
+  noise.connect(lp).connect(nG).connect(_sfxMaster);
+  noise.start(t); noise.stop(t + 0.08);
+  const sub = ctx.createOscillator();
+  sub.type = 'sine';
+  sub.frequency.setValueAtTime(140, t);
+  sub.frequency.exponentialRampToValueAtTime(55, t + 0.09);
+  const sG = ctx.createGain();
+  sG.gain.setValueAtTime(0.38, t);
+  sG.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+  sub.connect(sG).connect(_sfxMaster);
+  sub.start(t); sub.stop(t + 0.11);
+}
+// 영웅 피격 — 더 강한 thump (어둡고 거칠음)
+function playSfxHurt() {
+  const ctx = _ensureSfxCtx(); if (!ctx) return;
+  if (!_sfxThrottle('hurt', 35)) return;
+  const t = ctx.currentTime;
+  const sub = ctx.createOscillator();
+  sub.type = 'sine';
+  sub.frequency.setValueAtTime(200, t);
+  sub.frequency.exponentialRampToValueAtTime(45, t + 0.18);
+  const sG = ctx.createGain();
+  sG.gain.setValueAtTime(0.45, t);
+  sG.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+  sub.connect(sG).connect(_sfxMaster);
+  sub.start(t); sub.stop(t + 0.2);
+  const noise = ctx.createBufferSource();
+  noise.buffer = _sfxNoiseBuffer(ctx, 0.06, 1.6);
+  const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 380; bp.Q.value = 1.4;
+  const nG = ctx.createGain(); nG.gain.value = 0.28;
+  noise.connect(bp).connect(nG).connect(_sfxMaster);
+  noise.start(t); noise.stop(t + 0.06);
+}
+// 성 피격 — 묵직하고 긴 둔탁음
+function playSfxCastleHit() {
+  const ctx = _ensureSfxCtx(); if (!ctx) return;
+  if (!_sfxThrottle('castleHit', 60)) return;
+  const t = ctx.currentTime;
+  const sub = ctx.createOscillator();
+  sub.type = 'sine';
+  sub.frequency.setValueAtTime(95, t);
+  sub.frequency.exponentialRampToValueAtTime(30, t + 0.32);
+  const sG = ctx.createGain();
+  sG.gain.setValueAtTime(0.55, t);
+  sG.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+  sub.connect(sG).connect(_sfxMaster);
+  sub.start(t); sub.stop(t + 0.35);
+  const noise = ctx.createBufferSource();
+  noise.buffer = _sfxNoiseBuffer(ctx, 0.18, 2.5);
+  const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 550;
+  const nG = ctx.createGain(); nG.gain.value = 0.32;
+  noise.connect(lp).connect(nG).connect(_sfxMaster);
+  noise.start(t); noise.stop(t + 0.18);
+}
+
 // === Scene lifecycle =======================================================
 
 function create() {
@@ -620,6 +1454,39 @@ function create() {
     return _origAddText(x, y, content, style);
   };
 
+  // 필드 BGM — 루프, restart 시 재중복 없이 한 번만. 추후 사막/지역별 분기 시 키 교체.
+  // 브라우저 autoplay 정책: 첫 user gesture(클릭/터치) 후에야 sound.unlock + play 동작.
+  // 로비 BGM이 살아있으면 페이드 아웃으로 부드럽게 끄고 필드 BGM 페이드 인.
+  try {
+    const lobbyBgm = this.sound.get('bgm_lobby');
+    if (lobbyBgm && lobbyBgm.isPlaying) {
+      const startV = lobbyBgm.volume;
+      this.tweens.addCounter({
+        from: startV, to: 0, duration: 700,
+        onUpdate: (tween) => { try { lobbyBgm.setVolume(tween.getValue()); } catch (e) {} },
+        onComplete: () => { try { lobbyBgm.stop(); } catch (e) {} },
+      });
+    }
+
+    const FIELD_BGM_VOL = 0.55;
+    let bgm = this.sound.get('bgm_field');
+    if (!bgm) bgm = this.sound.add('bgm_field', { loop: true, volume: 0 });
+    if (!bgm.isPlaying) {
+      const start = () => {
+        try { bgm.setVolume(0); } catch (e) {}
+        if (!bgm.isPlaying) bgm.play();
+        this.tweens.addCounter({
+          from: 0, to: FIELD_BGM_VOL, duration: 900,
+          onUpdate: (tween) => { try { bgm.setVolume(tween.getValue()); } catch (e) {} },
+        });
+      };
+      if (this.sound.locked) this.sound.once('unlocked', start); else start();
+    } else {
+      // restart 케이스 — 볼륨 정상화만
+      try { bgm.setVolume(FIELD_BGM_VOL); } catch (e) {}
+    }
+  } catch (e) { console.warn('[BGM] failed', e); }
+
   // sprite sheet(NPOT)는 mipmap 시 WebGL1에서 incomplete → 검정 렌더링. setFilter LINEAR만 적용.
   ['hero_warrior_handsome_idle', 'hero_warrior_handsome_walk',
    'hero_warrior_handsome_attack', 'hero_warrior_handsome_skill',
@@ -627,6 +1494,22 @@ function create() {
    'hero_archer_robin_attack', 'hero_archer_robin_skill',
    'hero_mage_ice_idle', 'hero_mage_ice_walk',
    'hero_mage_ice_attack', 'hero_mage_ice_skill',
+   'hero_assassin_bakso_idle', 'hero_assassin_bakso_walk',
+   'hero_assassin_bakso_attack', 'hero_assassin_bakso_skill',
+   'hero_tank_dandan_idle', 'hero_tank_dandan_walk',
+   'hero_tank_dandan_attack', 'hero_tank_dandan_skill',
+   'hero_healer_grandpa_idle', 'hero_healer_grandpa_walk',
+   'hero_healer_grandpa_attack', 'hero_healer_grandpa_skill',
+   'hero_warrior_dark_idle', 'hero_warrior_dark_walk',
+   'hero_warrior_dark_attack', 'hero_warrior_dark_skill',
+   'hero_warrior_bandit_idle', 'hero_warrior_bandit_walk',
+   'hero_warrior_bandit_attack', 'hero_warrior_bandit_skill',
+   'hero_archer_oneshot_idle', 'hero_archer_oneshot_walk',
+   'hero_archer_oneshot_attack', 'hero_archer_oneshot_skill',
+   'hero_mage_bomber_idle', 'hero_mage_bomber_walk',
+   'hero_mage_bomber_attack', 'hero_mage_bomber_skill',
+   'hero_mage_dark_idle', 'hero_mage_dark_walk',
+   'hero_mage_dark_attack', 'hero_mage_dark_skill',
    'hero_shared_die'].forEach((k) => {
     try {
       const t = this.textures.get(k);
@@ -652,6 +1535,53 @@ function create() {
     { key: 'mage_ice_walk',           sheet: 'hero_mage_ice_walk',           end: 6,  fps: 12, repeat: -1 },
     { key: 'mage_ice_attack',         sheet: 'hero_mage_ice_attack',         end: 7,  fps: 14, repeat: 0  },
     { key: 'mage_ice_skill',          sheet: 'hero_mage_ice_skill',          end: 10, fps: 12, repeat: 0  },
+
+    { key: 'assassin_bakso_idle',     sheet: 'hero_assassin_bakso_idle',     end: 5,  fps: 10, repeat: -1 },
+    { key: 'assassin_bakso_walk',     sheet: 'hero_assassin_bakso_walk',     end: 6,  fps: 18, repeat: -1 },
+    { key: 'assassin_bakso_attack',   sheet: 'hero_assassin_bakso_attack',   end: 7,  fps: 18, repeat: 0  },
+    { key: 'assassin_bakso_skill',    sheet: 'hero_assassin_bakso_skill',    end: 9,  fps: 14, repeat: 0  },
+
+    // 딴딴기사 — 묵직하게 느린 호흡, 공격은 큰 swing 한 사이클
+    { key: 'tank_dandan_idle',        sheet: 'hero_tank_dandan_idle',        end: 5,  fps: 8,  repeat: -1 },
+    { key: 'tank_dandan_walk',        sheet: 'hero_tank_dandan_walk',        end: 6,  fps: 10, repeat: -1 },
+    { key: 'tank_dandan_attack',      sheet: 'hero_tank_dandan_attack',      end: 7,  fps: 11, repeat: 0  },
+    { key: 'tank_dandan_skill',       sheet: 'hero_tank_dandan_skill',       end: 9,  fps: 12, repeat: 0  },
+
+    // 응급할배 — 차분한 idle, 가운데 빠른 캐스팅 모션
+    { key: 'healer_grandpa_idle',     sheet: 'hero_healer_grandpa_idle',     end: 5,  fps: 9,  repeat: -1 },
+    { key: 'healer_grandpa_walk',     sheet: 'hero_healer_grandpa_walk',     end: 6,  fps: 12, repeat: -1 },
+    { key: 'healer_grandpa_attack',   sheet: 'hero_healer_grandpa_attack',   end: 7,  fps: 14, repeat: 0  },
+    { key: 'healer_grandpa_skill',    sheet: 'hero_healer_grandpa_skill',    end: 9,  fps: 12, repeat: 0  },
+
+    // 악흑의 기사 — 묵직한 전사 톤, 큰 망치 swing
+    { key: 'warrior_dark_idle',       sheet: 'hero_warrior_dark_idle',       end: 5,  fps: 10, repeat: -1 },
+    { key: 'warrior_dark_walk',       sheet: 'hero_warrior_dark_walk',       end: 6,  fps: 12, repeat: -1 },
+    { key: 'warrior_dark_attack',     sheet: 'hero_warrior_dark_attack',     end: 7,  fps: 13, repeat: 0  },
+    { key: 'warrior_dark_skill',      sheet: 'hero_warrior_dark_skill',      end: 9,  fps: 12, repeat: 0  },
+
+    // 산적 — 잰걸음, 빠른 잽 같은 attack
+    { key: 'warrior_bandit_idle',     sheet: 'hero_warrior_bandit_idle',     end: 5,  fps: 10, repeat: -1 },
+    { key: 'warrior_bandit_walk',     sheet: 'hero_warrior_bandit_walk',     end: 6,  fps: 14, repeat: -1 },
+    { key: 'warrior_bandit_attack',   sheet: 'hero_warrior_bandit_attack',   end: 7,  fps: 16, repeat: 0  },
+    { key: 'warrior_bandit_skill',    sheet: 'hero_warrior_bandit_skill',    end: 9,  fps: 13, repeat: 0  },
+
+    // 원샷원킬 — 느린 호흡, 천천히 당겼다 쏘는 attack
+    { key: 'archer_oneshot_idle',     sheet: 'hero_archer_oneshot_idle',     end: 5,  fps: 9,  repeat: -1 },
+    { key: 'archer_oneshot_walk',     sheet: 'hero_archer_oneshot_walk',     end: 6,  fps: 11, repeat: -1 },
+    { key: 'archer_oneshot_attack',   sheet: 'hero_archer_oneshot_attack',   end: 7,  fps: 10, repeat: 0  },
+    { key: 'archer_oneshot_skill',    sheet: 'hero_archer_oneshot_skill',    end: 9,  fps: 12, repeat: 0  },
+
+    // 폭탄중독병 — 느린 호흡, 폭탄 던지는 throw 모션
+    { key: 'mage_bomber_idle',        sheet: 'hero_mage_bomber_idle',        end: 5,  fps: 10, repeat: -1 },
+    { key: 'mage_bomber_walk',        sheet: 'hero_mage_bomber_walk',        end: 6,  fps: 12, repeat: -1 },
+    { key: 'mage_bomber_attack',      sheet: 'hero_mage_bomber_attack',      end: 7,  fps: 11, repeat: 0  },
+    { key: 'mage_bomber_skill',       sheet: 'hero_mage_bomber_skill',       end: 9,  fps: 12, repeat: 0  },
+
+    // 흑마법사 — 어두운 캐스팅 호흡, 지팡이 끝에서 빔 발사
+    { key: 'mage_dark_idle',          sheet: 'hero_mage_dark_idle',          end: 5,  fps: 9,  repeat: -1 },
+    { key: 'mage_dark_walk',          sheet: 'hero_mage_dark_walk',          end: 6,  fps: 11, repeat: -1 },
+    { key: 'mage_dark_attack',        sheet: 'hero_mage_dark_attack',        end: 7,  fps: 13, repeat: 0  },
+    { key: 'mage_dark_skill',         sheet: 'hero_mage_dark_skill',         end: 9,  fps: 12, repeat: 0  },
     // 공용 die (모든 영웅 공유) — animKeys.die에서 이 키 사용
     { key: 'hero_shared_die',         sheet: 'hero_shared_die',              end: 6,  fps: 8,  repeat: 0  },
   ];
@@ -682,6 +1612,9 @@ function create() {
   castleStatPoints = 0;
   autoBossSummon = false;
   classTrainLevels = makeEmptyClassTrain();
+  totalSummons = 0;
+  guideStep = 0;
+  claimedStageRewards = new Set();
   castleMaxHp = computeCastleMaxHp();
   castleHP = castleMaxHp;
 
@@ -697,6 +1630,7 @@ function create() {
   drawTopUI(this);
   buildStagePanel(this);
   drawTavernButton(this);
+  drawStageRewardButton(this);
   // 무료 소환 가능 여부 주기 체크 (3초마다 — wobble/말풍선 on/off)
   this.time.addEvent({
     delay: 3000, loop: true, callback: () => updateTavernButton(this),
@@ -722,6 +1656,21 @@ function create() {
     if (typeof saved.castleNickname === 'string' && saved.castleNickname.length > 0) {
       castleNickname = saved.castleNickname;
     }
+    if (typeof saved.userProfileKey === 'string' && saved.userProfileKey.length > 0) {
+      this.userProfileKey = saved.userProfileKey;
+      // HUD가 이미 디폴트로 그려졌으니 saved 키로 갱신
+      if (this.uiAvatarSprite && this.uiAvatarSprite.setTexture) {
+        this.uiAvatarSprite.setTexture(this.userProfileKey);
+        const _avSize = 77 * 0.83;
+        this.uiAvatarSprite.setDisplaySize(_avSize, _avSize);
+      }
+    }
+    if (typeof saved.playerId === 'string' && saved.playerId.length > 0) {
+      this.playerId = saved.playerId;
+    }
+    if (typeof saved.totalGoldSpent === 'number') totalGoldSpent = saved.totalGoldSpent;
+    if (typeof saved.totalGemsSpent === 'number') totalGemsSpent = saved.totalGemsSpent;
+    if (saved.tutorialDone === true) tutorialDone = true;
     if (typeof saved.castleStatAtk === 'number') castleStatAtk = clampStat(saved.castleStatAtk);
     if (typeof saved.castleStatDef === 'number') castleStatDef = clampStat(saved.castleStatDef);
     if (typeof saved.castleStatHp === 'number') castleStatHp = clampStat(saved.castleStatHp);
@@ -732,7 +1681,7 @@ function create() {
       castleStatPoints = saved.castleStatPoints;
     }
     if (typeof saved.autoBossSummon === 'boolean') autoBossSummon = saved.autoBossSummon;
-    // 무료 소환 stock 복원 + 경과 시간만큼 추가 충전
+    // 무료 소환 상태 복원 (stock/쿨다운 종료시점/리셋일). 자정 리셋만 refillTavernStock에서 처리 — 시간 경과 자동충전 없음(하루 5회 + 사용당 5분 대기 방식)
     if (typeof saved.tavernFreeStock === 'number') {
       tavernFreeStock = Math.max(0, Math.min(TAVERN_FREE_MAX, Math.floor(saved.tavernFreeStock)));
     }
@@ -741,6 +1690,16 @@ function create() {
     }
     if (typeof saved.tavernResetDay === 'string') {
       tavernResetDay = saved.tavernResetDay;
+    }
+    // 가이드 미션 진행 복원 (구버전 세이브엔 없음 → 기본값 0 유지)
+    if (typeof saved.totalSummons === 'number' && saved.totalSummons >= 0) {
+      totalSummons = Math.floor(saved.totalSummons);
+    }
+    if (typeof saved.guideStep === 'number' && saved.guideStep >= 0) {
+      guideStep = Math.min(Math.floor(saved.guideStep), GUIDE_MISSIONS.length);
+    }
+    if (Array.isArray(saved.claimedStageRewards)) {
+      claimedStageRewards = new Set(saved.claimedStageRewards.filter((n) => typeof n === 'number'));
     }
     refillTavernStock();
     if (saved.classTrainLevels && typeof saved.classTrainLevels === 'object') {
@@ -803,12 +1762,83 @@ function create() {
   updateCastleStatusUI(this);
   refreshTabBar(this);
 
+  // 가이드 미션 위젯 — 세이브 복원/영웅 배치 완료 후 생성. 진행도는 1초마다 갱신.
+  buildGuideWidget(this);
+  this.time.addEvent({ delay: 1000, loop: true, callback: () => { refreshGuideWidget(this); refreshStageRewardButton(this); } });
+
   setupCameras(this);
+
+  addFieldAmbience(this); // 공간감 연출 (구름 그림자 + 비네팅)
 
   startStage(this);
 
+  // === 첫 진입 — 임시 닉네임 자동 생성 + 튜토리얼 시작 ===
+  if (!castleNickname || castleNickname === CASTLE_DEFAULT_NAME) {
+    castleNickname = generateGuestNickname();
+    if (this.uiCastleNameTop) this.uiCastleNameTop.setText(castleNickname);
+    saveGame(this);
+  }
+  // 튜토리얼 작업 비활성화 — 사용자 요청 (추후 재활성화 시 아래 주석 해제)
+  // if (!tutorialDone) {
+  //   this.time.delayedCall(1200, () => startTutorial(this));
+  // }
+
   // === 개발자 치트 패널 (` 키로 토글) ===
   this.input.keyboard.on('keydown-BACKTICK', () => toggleCheatPanel(this));
+}
+
+// 부드러운 원형 텍스처 생성 (동심원 누적 → radial falloff). createCanvas보다 환경 안정적.
+function makeSoftBlob(scene, key, size, color) {
+  if (scene.textures.exists(key)) return;
+  const gfx = scene.make.graphics({ add: false });
+  const steps = 28, c = size / 2;
+  for (let i = steps; i >= 1; i--) {
+    gfx.fillStyle(color, 1 / steps);
+    gfx.fillCircle(c, c, (size / 2) * (i / steps));
+  }
+  gfx.generateTexture(key, size, size);
+  gfx.destroy();
+}
+
+// 전장 공간감/분위기 연출 — 구름 그림자(레이어감) + 안개(깊이) + 빛 입자(공기감). 전부 은은하게.
+function addFieldAmbience(scene) {
+  // 구름 그림자 — 실제 구름 실루엣(cloud_sil 12종 랜덤)이 좌→우 흘러감. 등장/퇴장 페이드.
+  const CLOUD_OPACITIES = [0.12, 0.16, 0.2]; // 농도 3 베리에이션 (흐리게 — 제일 흐린 0.2가 디폴트/최대)
+  const spawnCloud = () => {
+    const key = 'cloud_sil_' + Phaser.Math.Between(0, 11);
+    const sy0 = Phaser.Math.Between(-40, GAME_H - BOTTOM_UI_HEIGHT - 20); // 위~아래 끝까지 다양
+    const peak = CLOUD_OPACITIES[Phaser.Math.Between(0, 2)];
+    const sh = scene.add.image(-280, sy0, key)
+      .setScale(Phaser.Math.FloatBetween(2.2, 5.0)) // 랜덤 2~3배 더 크게 (다양)
+      .setDepth(6).setAlpha(0).setBlendMode(Phaser.BlendModes.MULTIPLY);
+    const dur = Phaser.Math.Between(18000, 32000);
+    scene.tweens.add({
+      targets: sh, x: GAME_W + 360, y: sy0 + Phaser.Math.Between(-60, 220), // 상승/하강 랜덤
+      duration: dur, ease: 'Linear', onComplete: () => sh.destroy(),
+    });
+    scene.tweens.add({ targets: sh, alpha: peak, duration: 3000, ease: 'Sine.easeOut' });               // 페이드 인
+    scene.tweens.add({ targets: sh, alpha: 0, duration: 3000, delay: dur - 3000, ease: 'Sine.easeIn' }); // 페이드 아웃
+  };
+  spawnCloud();
+  scene.time.addEvent({ delay: 16000, loop: true, callback: spawnCloud }); // 빈도 절반
+
+  // 작은 빛(나비) — 필드를 자유롭게 떠돌아다님 + 날개짓 (꼭 나비로 안 보여도 OK)
+  const spawnButterfly = () => {
+    const bx = Phaser.Math.Between(60, GAME_W - 60);
+    const by = Phaser.Math.Between(TOP_UI_HEIGHT + 60, GAME_H - BOTTOM_UI_HEIGHT - 60);
+    const b = scene.add.circle(bx, by, 2.5, 0xFFF4C0, 0.85).setDepth(8).setBlendMode(Phaser.BlendModes.ADD);
+    // 랜덤 waypoint로 부드럽게 이동 반복 (팔랑팔랑 떠돌이)
+    const wander = () => {
+      if (!b.active) return;
+      const nx = Phaser.Math.Clamp(b.x + Phaser.Math.Between(-90, 90), 40, GAME_W - 40);
+      const ny = Phaser.Math.Clamp(b.y + Phaser.Math.Between(-75, 75), TOP_UI_HEIGHT + 50, GAME_H - BOTTOM_UI_HEIGHT - 50);
+      scene.tweens.add({ targets: b, x: nx, y: ny, duration: Phaser.Math.Between(1800, 2800), ease: 'Sine.easeInOut', onComplete: wander });
+    };
+    wander();
+    // 날개짓 — 좌우로 납작해졌다 펴짐
+    scene.tweens.add({ targets: b, scaleX: 0.5, duration: 200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+  };
+  for (let i = 0; i < 3; i++) spawnButterfly(); // 3마리
 }
 
 // 치트 패널 — 우측 상단에 떠 있는 작은 모달, 버튼 클릭으로 치트 실행
@@ -834,6 +1864,30 @@ const CHEAT_ACTIONS = [
   { label: '보석 +100', run: (scene) => {
     gems += 100; updateGemsUI(scene); updateTavernButton(scene);
     showToast(scene, '[치트] 보석 +100');
+  } },
+  { label: '모든 영웅 획득', run: (scene) => {
+    let added = 0;
+    Object.keys(HEROES).forEach((heroId) => {
+      if (scene.heroInventory[heroId]) return;
+      scene.heroInventory[heroId] = { heroId, enhance: 0, deployedSlot: null };
+      added += 1;
+    });
+    if (scene.inventoryPanelElements) refreshInventoryPanel(scene);
+    try { saveGame(scene); } catch (e) {}
+    showToast(scene, added > 0 ? `[치트] 영웅 ${added}명 획득` : '[치트] 이미 모두 보유');
+  } },
+  { label: '모든 슬롯 개방', run: (scene) => {
+    cheatAllSlotsUnlocked = true;
+    refreshHeroSlotUnlock(scene);
+    showToast(scene, '[치트] 8개 슬롯 전부 개방');
+  } },
+  { label: '세이브 초기화 (처음부터)', run: (scene) => {
+    // 모든 세이브(현재+레거시) 삭제 후 새로고침 → 신규 시작
+    [SAVE_KEY, SAVE_KEY_LEGACY_V11, SAVE_KEY_LEGACY_V10, SAVE_KEY_LEGACY_V9].forEach((k) => {
+      try { localStorage.removeItem(k); } catch (e) {}
+    });
+    showToast(scene, '[치트] 세이브 초기화 — 새로고침합니다');
+    location.reload();
   } },
 ];
 
@@ -945,6 +1999,356 @@ function assignCamerasIfNeeded(scene) {
       scene.uiCamera.ignore(child);
     }
   }
+}
+
+// === 첫 진입 튜토리얼 매니저 (4단계) =========================================
+// 1: 영웅 드래그 / 2: 주점 영웅 소환 / 3: 인벤토리에서 배치 / 4: 닉네임 변경
+function startTutorial(scene) {
+  scene.tutorialStep = 1;
+  showTutorialStep(scene);
+}
+
+function showTutorialStep(scene) {
+  closeTutorialOverlay(scene);
+  const step = scene.tutorialStep;
+  if (step === 1)      showTutorialStep1(scene);
+  else if (step === 2) showTutorialStep2(scene);
+  else if (step === 3) showTutorialStep3(scene);
+  else if (step === 4) showTutorialStep4(scene);
+  else finishTutorial(scene);
+}
+
+function advanceTutorial(scene) {
+  scene.tutorialStep = (scene.tutorialStep || 0) + 1;
+  scene.time.delayedCall(450, () => showTutorialStep(scene));
+}
+
+function finishTutorial(scene) {
+  closeTutorialOverlay(scene);
+  tutorialDone = true;
+  try { saveGame(scene); } catch (e) {}
+}
+
+function closeTutorialOverlay(scene) {
+  if (!scene.tutorialOverlay) return;
+  // 등록한 이벤트 핸들러 해제
+  if (scene.tutorialOverlay.cleanup) {
+    try { scene.tutorialOverlay.cleanup(); } catch (e) {}
+  }
+  scene.tutorialOverlay.els.forEach((e) => e && e.destroy && e.destroy());
+  scene.tutorialOverlay = null;
+}
+
+// 튜토리얼 메시지 영역 — 모든 step에서 같은 위치 사용
+const TUTORIAL_MSG_X = GAME_W / 2;
+const TUTORIAL_MSG_Y = 290;
+
+// 튜토리얼 공용 — 텍스트만 + 단계 라벨 좌우 장식(결과창 REWARDS 스타일 라인+다이아).
+function tutorialBubble(scene, msg, stepLabel) {
+  const x = TUTORIAL_MSG_X, y = TUTORIAL_MSG_Y;
+  const els = [];
+  // 단계 라벨 (위)
+  if (stepLabel) {
+    const stepY = y - 32;
+    const stepTxt = scene.add.text(x, stepY, stepLabel, {
+      fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '13px',
+      color: '#FFFFFF', stroke: '#000000', strokeThickness: 3,
+      align: 'center',
+    }).setOrigin(0.5).setDepth(991).setResolution(3);
+    stepTxt.setShadow(0, 2, '#000000', 2, true, true);
+    els.push(stepTxt);
+
+    // 좌우 장식 — 결과창 REWARDS 라벨 ornament (가로 라인 + 다이아)
+    const halfW = stepTxt.width / 2;
+    const gap = 8;
+    const lineLen = 24;
+    const diaSize = 3;
+    const lineDiaGap = 4;
+    const leftDiaCX = x - halfW - gap - lineLen - lineDiaGap - diaSize;
+    const rightDiaCX = x + halfW + gap + lineLen + lineDiaGap + diaSize;
+    const leftLineX = x - halfW - gap - lineLen;
+    const rightLineX = x + halfW + gap;
+    // 외곽선용 (검정 fillRect — 좌우 끝까지 외곽선)
+    const ornBg = scene.add.graphics().setDepth(990);
+    ornBg.fillStyle(0x000000, 1);
+    // 좌우 라인 검정 (두께 5)
+    ornBg.fillRect(leftLineX - 1, stepY - 2.5, lineLen + 2, 5);
+    ornBg.fillRect(rightLineX - 1, stepY - 2.5, lineLen + 2, 5);
+    const dB = diaSize + 1.5;
+    ornBg.fillTriangle(leftDiaCX, stepY - dB, leftDiaCX + dB, stepY, leftDiaCX - dB, stepY);
+    ornBg.fillTriangle(leftDiaCX, stepY + dB, leftDiaCX + dB, stepY, leftDiaCX - dB, stepY);
+    ornBg.fillTriangle(rightDiaCX, stepY - dB, rightDiaCX + dB, stepY, rightDiaCX - dB, stepY);
+    ornBg.fillTriangle(rightDiaCX, stepY + dB, rightDiaCX + dB, stepY, rightDiaCX - dB, stepY);
+    // 내부 흰색 (좌우 1px 안쪽 → 좌/우 끝 검정 노출)
+    const orn = scene.add.graphics().setDepth(991);
+    orn.fillStyle(0xFFFFFF, 1);
+    orn.fillRect(leftLineX, stepY - 1, lineLen, 2);
+    orn.fillRect(rightLineX, stepY - 1, lineLen, 2);
+    orn.fillTriangle(leftDiaCX, stepY - diaSize, leftDiaCX + diaSize, stepY, leftDiaCX - diaSize, stepY);
+    orn.fillTriangle(leftDiaCX, stepY + diaSize, leftDiaCX + diaSize, stepY, leftDiaCX - diaSize, stepY);
+    orn.fillTriangle(rightDiaCX, stepY - diaSize, rightDiaCX + diaSize, stepY, rightDiaCX - diaSize, stepY);
+    orn.fillTriangle(rightDiaCX, stepY + diaSize, rightDiaCX + diaSize, stepY, rightDiaCX - diaSize, stepY);
+    els.push(ornBg, orn);
+  }
+  // 본문 (아래). 인구 톤 옅은 골드/노랑
+  const txt = scene.add.text(x, y + 12, msg, {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '19px',
+    color: '#FFE08A', stroke: '#000000', strokeThickness: 5,
+    align: 'center', lineSpacing: 5,
+  }).setOrigin(0.5).setDepth(991).setResolution(3);
+  txt.setShadow(0, 3, '#000000', 3, true, true);
+  els.push(txt);
+  return els;
+}
+
+// 단계 수행 완료 시 큰 텍스트 연출 (페이드 in/out) → 다음 step
+// 위치는 메시지 영역과 동일 — 항상 같은 자리에서 모든 튜토리얼 텍스트가 나옴
+function showStepComplete(scene, msg, onDone) {
+  const txt = scene.add.text(TUTORIAL_MSG_X, TUTORIAL_MSG_Y, msg, {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '30px',
+    color: '#FFE96B', stroke: '#000000', strokeThickness: 6,
+    align: 'center',
+  }).setOrigin(0.5).setDepth(995).setResolution(3).setScale(0.4).setAlpha(0);
+  txt.setShadow(0, 3, '#000000', 4, true, true);
+  scene.tweens.add({
+    targets: txt, scale: 1, alpha: 1,
+    duration: 320, ease: 'Back.easeOut',
+    onComplete: () => {
+      scene.tweens.add({
+        targets: txt, alpha: 0, scale: 1.1,
+        duration: 550, delay: 700, ease: 'Quad.easeIn',
+        onComplete: () => {
+          try { txt.destroy(); } catch (e) {}
+          if (onDone) onDone();
+        },
+      });
+    },
+  });
+}
+
+function tutorialArrow(scene, x, y) {
+  // 자산은 손가락이 위쪽을 향함. 180도 회전 → 아래쪽 가리킴.
+  const arrow = scene.add.image(x, y, 'tutorial_hand')
+    .setDisplaySize(48, 48).setAngle(180).setDepth(991);
+  // scale pulse — 위치는 호출처에서 영웅 따라 갱신할 수 있도록 비워둠
+  const bsx = arrow.scaleX, bsy = arrow.scaleY;
+  scene.tweens.add({
+    targets: arrow, scaleX: bsx * 1.15, scaleY: bsy * 1.15,
+    duration: 550, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+  });
+  return arrow;
+}
+
+// 튜토리얼 강조 박스 — 밝은 하늘색 외곽선만 (펄스)
+function tutorialHighlightBox(scene, x, y, w, h, depth) {
+  const d = depth || 50;
+  const box = scene.add.rectangle(x, y, w + 6, h + 6)
+    .setStrokeStyle(4, 0x6BD9FF, 1).setDepth(d);
+  scene.tweens.add({
+    targets: box, scaleX: 1.08, scaleY: 1.08,
+    duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+  });
+  return [box];
+}
+
+// 시작 영웅 찾기 (배치된 첫 영웅)
+function findStartingHero(scene) {
+  if (!scene.heroSlots) return null;
+  for (const slot of scene.heroSlots) {
+    if (slot && slot.occupied && slot.hero && slot.hero.active) return slot.hero;
+  }
+  return null;
+}
+
+// === Step 1: 영웅 드래그 ====================================================
+function showTutorialStep1(scene) {
+  const hero = findStartingHero(scene);
+  if (!hero) {
+    // 영웅 없으면 step 1 skip → step 2로 진행
+    advanceTutorial(scene);
+    return;
+  }
+  const els = [];
+  // 화살표 (영웅 머리 위)
+  const arrow = tutorialArrow(scene, hero.x, hero.y - 50);
+  els.push(arrow);
+  // 메시지 — 고정 위치 (TUTORIAL_MSG_X/Y)
+  els.push(...tutorialBubble(scene,
+    '슬라임이 다가오고 있어요!\n캐릭터를 드래그해서 이동시켜 보세요!',
+    '튜토리얼 1'));
+
+  // 영웅 dragstart → 손 숨김
+  const onDragStart = () => { if (arrow && arrow.setVisible) arrow.setVisible(false); };
+  hero.on('dragstart', onDragStart);
+  // 영웅 dragend → 완료 연출 후 다음 step
+  const onDragEnd = () => {
+    if (!scene.tutorialOverlay) return;
+    closeTutorialOverlay(scene);
+    showStepComplete(scene, '잘 했어요!', () => advanceTutorial(scene));
+  };
+  hero.once('dragend', onDragEnd);
+
+  // 손 아이콘이 영웅 위치 따라가게 — 매 프레임 갱신 (드래그 중에는 invisible)
+  const followTimer = scene.time.addEvent({
+    delay: 30, loop: true, callback: () => {
+      if (!arrow || !arrow.scene || !hero || !hero.active) return;
+      if (!arrow.visible) return;
+      arrow.x = hero.x;
+      arrow.y = hero.y - 50;
+    },
+  });
+
+  scene.tutorialOverlay = {
+    els,
+    cleanup: () => {
+      try { hero.off('dragstart', onDragStart); } catch (e) {}
+      try { hero.off('dragend', onDragEnd); } catch (e) {}
+      try { followTimer.remove(); } catch (e) {}
+    },
+  };
+}
+
+// === Step 2: 주점 영웅 소환 (3 sub-step 강제 가이드) =========================
+// 2a: HUD 영웅 소환 버튼 강조 → 클릭
+// 2b: 모달 열림 → 가운데 카드 강조 → 클릭 (선택)
+// 2c: 소환 버튼 강조 → 클릭 → 영웅 획득 → step2 완료
+function showTutorialStep2(scene) {
+  if (!scene.uiTavernBg) { advanceTutorial(scene); return; }
+  step2_subA(scene);
+}
+
+// 2a: HUD 주점 버튼
+function step2_subA(scene) {
+  const tavern = scene.uiTavernBg;
+  const els = [];
+  els.push(...tutorialHighlightBox(scene, tavern.x, tavern.y,
+    tavern.displayWidth, tavern.displayHeight, 50));
+  els.push(...tutorialBubble(scene,
+    '주점 버튼을 눌러주세요!',
+    '튜토리얼 2'));
+  const onClick = () => {
+    closeTutorialOverlay(scene);
+    scene.time.delayedCall(500, () => step2_subB(scene));
+  };
+  tavern.once('pointerdown', onClick);
+  scene.tutorialOverlay = {
+    els,
+    cleanup: () => { try { tavern.off('pointerdown', onClick); } catch (e) {} },
+  };
+}
+
+// 2b: 모달 안 가운데 카드 강조
+function step2_subB(scene) {
+  const slots = scene.tavernCardSlots;
+  if (!slots || slots.length < 1) {
+    // 모달 카드 없음 → 영웅 획득 hook으로 polling
+    step2_finalHook(scene);
+    return;
+  }
+  const mid = Math.floor(slots.length / 2);
+  const slot = slots[mid];
+  const els = [];
+  els.push(...tutorialHighlightBox(scene, slot.x, slot.y, slot.w, slot.h, 110));
+  els.push(...tutorialBubble(scene,
+    '가운데 카드를 눌러 영웅을 선택해주세요!',
+    '튜토리얼 2'));
+  // 카드 클릭 감지 — tavernRevealed가 true가 되면 카드가 뒤집힘 (선택됨)
+  const checkTimer = scene.time.addEvent({
+    delay: 100, loop: true, callback: () => {
+      if (scene.tavernRevealed) {
+        checkTimer.remove();
+        if (!scene.tutorialOverlay) return;
+        closeTutorialOverlay(scene);
+        scene.time.delayedCall(400, () => step2_subC(scene));
+      }
+    },
+  });
+  scene.tutorialOverlay = {
+    els,
+    cleanup: () => { try { checkTimer.remove(); } catch (e) {} },
+  };
+}
+
+// 2c: 소환 버튼 강조
+function step2_subC(scene) {
+  const sb = scene.tavernSummonBtn;
+  const els = [];
+  if (sb && sb.bg) {
+    els.push(...tutorialHighlightBox(scene, sb.bg.x, sb.bg.y,
+      sb.bg.displayWidth || sb.bg.width, sb.bg.displayHeight || sb.bg.height, 110));
+  }
+  els.push(...tutorialBubble(scene,
+    '소환 버튼을 눌러주세요!',
+    '튜토리얼 2'));
+  step2_finalHook(scene, els);
+}
+
+// 영웅 획득 hook — step2 종료
+function step2_finalHook(scene, existingEls) {
+  scene._onHeroAcquiredTutorial = () => {
+    if (!scene.tutorialOverlay) return;
+    closeTutorialOverlay(scene);
+    showStepComplete(scene, '잘 했어요!', () => advanceTutorial(scene));
+  };
+  if (existingEls) {
+    scene.tutorialOverlay = {
+      els: existingEls,
+      cleanup: () => { scene._onHeroAcquiredTutorial = null; },
+    };
+  } else if (!scene.tutorialOverlay) {
+    scene.tutorialOverlay = {
+      els: [],
+      cleanup: () => { scene._onHeroAcquiredTutorial = null; },
+    };
+  }
+}
+
+// === Step 3: 인벤토리에서 영웅 배치 =========================================
+function showTutorialStep3(scene) {
+  const els = [];
+  // 영웅 탭 ('heroes') 영역 강조 박스
+  const heroTab = (scene.tabButtons || []).find((b) => b.id === 'heroes');
+  if (heroTab && heroTab.zone) {
+    els.push(...tutorialHighlightBox(scene, heroTab.zone.x, heroTab.zone.y,
+      heroTab.zone.width, heroTab.zone.height, 50));
+  }
+  els.push(...tutorialBubble(scene,
+    '영웅 탭을 열어 인벤토리의 영웅을\n슬롯에 배치해 보세요!',
+    '튜토리얼 3'));
+  // 배치 완료 hook (deployHeroFromInventory에서 호출됨)
+  scene._onHeroDeployedTutorial = () => {
+    if (!scene.tutorialOverlay) return;
+    closeTutorialOverlay(scene);
+    showStepComplete(scene, '잘 했어요!', () => advanceTutorial(scene));
+  };
+  scene.tutorialOverlay = {
+    els,
+    cleanup: () => { scene._onHeroDeployedTutorial = null; },
+  };
+}
+
+// === Step 4: 프로필에서 닉네임 변경 =========================================
+function showTutorialStep4(scene) {
+  const els = [];
+  // HUD 아바타 영역 강조 박스
+  if (scene.uiAvatarSprite) {
+    const av = scene.uiAvatarSprite;
+    els.push(...tutorialHighlightBox(scene, av.x, av.y,
+      av.displayWidth, av.displayHeight, 50));
+  }
+  els.push(...tutorialBubble(scene,
+    '프로필에서 닉네임을 변경해 보세요!\n좌측 상단 프로필 아이콘을 눌러주세요!',
+    '튜토리얼 4'));
+  // 닉네임 변경 완료 hook
+  scene._onNicknameChangedTutorial = () => {
+    if (!scene.tutorialOverlay) return;
+    closeTutorialOverlay(scene);
+    showStepComplete(scene, '튜토리얼 완료!', () => advanceTutorial(scene));
+  };
+  scene.tutorialOverlay = {
+    els,
+    cleanup: () => { scene._onNicknameChangedTutorial = null; },
+  };
 }
 
 function update(time, delta) {
@@ -1249,7 +2653,18 @@ function getHeroDrawBody(def) {
 // 인벤/HUD/카드/ghost/상세창 등 portrait 정적 표시용.
 // sprite sheet 영웅은 frame 0 정지 image, 나머지는 기존 drawBody 그대로.
 // (필드 makeHero는 이 헬퍼 안 쓰고 getHeroDrawBody 직접 호출 → anim 재생 유지)
-function drawHeroPortraitStatic(scene, def, container) {
+// opts.useBig: true이면 def.portraitBig (큰 인벤토리용 lobby_xxx PNG) 사용.
+function drawHeroPortraitStatic(scene, def, container, opts) {
+  opts = opts || {};
+  if (opts.useBig && def.portraitBig) {
+    const sprite = scene.add.image(0, 0, def.portraitBig);
+    const sz = def.portraitBigSize || { w: 287, h: 360 };
+    const baseScale = 96 / sz.h;
+    const extra = def.portraitBigScale || 1;
+    sprite.setScale(baseScale * extra);
+    container.add(sprite);
+    return;
+  }
   if (def.portraitSheet) {
     const sprite = scene.add.image(0, 0, def.portraitSheet, def.portraitSheetFrame || 0);
     const baseScale = 96 / def.portraitSheetSize.h;
@@ -1395,7 +2810,9 @@ function deployHeroFromInventory(scene, heroId, slotIndex) {
   const entry = scene.heroInventory[heroId];
   if (!entry || entry.deployedSlot !== null) return false;
   const slot = scene.heroSlots[slotIndex];
-  if (!slot || slot.occupied) return false;
+  if (!slot) return false;
+  // 기존 영웅 있으면 인벤토리로 회수 후 교체 (드래그-교체 UX)
+  if (slot.occupied) recallHeroFromSlot(scene, slotIndex);
   const def = HEROES[heroId];
   if (!def) return false;
   const pos = getHeroHomePosition(slotIndex);
@@ -1406,6 +2823,12 @@ function deployHeroFromInventory(scene, heroId, slotIndex) {
   scene.allies.add(hero);
   bindHeroToHUDSlot(scene, hero, slotIndex);
   entry.deployedSlot = slotIndex;
+  // 튜토리얼 step3 hook — 영웅 배치 시 자동 진행
+  if (scene._onHeroDeployedTutorial) {
+    const cb = scene._onHeroDeployedTutorial;
+    scene._onHeroDeployedTutorial = null;
+    try { cb(); } catch (e) {}
+  }
   return true;
 }
 
@@ -1508,6 +2931,14 @@ function enableHeroDrag(scene, hero) {
     if (hero.shadow) hero.shadow.setDepth(19);
     scene.tweens.killTweensOf(hero);
     scene.tweens.add({ targets: hero, scaleX: 1.2, scaleY: 1.2, duration: 120, ease: 'Quad.easeOut' });
+    // 드래그 중에만 몬스터 인식 범위 표시 — 은은한 흰색 아웃라인 원 (채움 없음, 바닥에 깔림)
+    if (hero._rangeRing) hero._rangeRing.destroy();
+    const ring = scene.add.graphics();
+    ring.lineStyle(2, 0xffffff, 0.4);
+    ring.strokeCircle(0, 0, hero.detectRange || 0);
+    ring.setPosition(hero.x, hero.y).setDepth(3).setAlpha(0);
+    scene.tweens.add({ targets: ring, alpha: 1, duration: 150, ease: 'Quad.easeOut' });
+    hero._rangeRing = ring;
   });
 
   hero.on('drag', (pointer, dragX, dragY) => {
@@ -1518,6 +2949,7 @@ function enableHeroDrag(scene, hero) {
     hero.y = y;
     applyCastleCollision(hero);
     syncUnit(hero);
+    if (hero._rangeRing) hero._rangeRing.setPosition(hero.x, hero.y);
   });
 
   hero.on('dragend', () => {
@@ -1526,31 +2958,65 @@ function enableHeroDrag(scene, hero) {
     hero.setDepth(hero._dragSavedDepth || 4);
     if (hero.shadow) hero.shadow.setDepth(2);
     scene.tweens.add({ targets: hero, scaleX: 1, scaleY: 1, duration: 140, ease: 'Quad.easeOut' });
+    if (hero._rangeRing) {
+      const ring = hero._rangeRing;
+      hero._rangeRing = null;
+      scene.tweens.add({ targets: ring, alpha: 0, duration: 180, ease: 'Quad.easeOut', onComplete: () => ring.destroy() });
+    }
   });
 }
 
-function applyHeroStats(hero) {
-  const def = hero.heroDef;
-  const cls = CLASSES[def.class];
+// 영웅 maxHp/damage/defense 계산 — 실제 전투와 상세창 표시가 항상 일치하도록 공용 사용.
+//  · 등급(rarity): base에 곱하는 배수
+//  · 강화(enhance): flat 가산 (강화수 × 강화당 정수 증가, floor 소실 없음)
+//  · 훈련(classTrain): % 배수 (클래스 전체 일괄)
+//  · 인구: 공격 = % 배수(getHeroDamageMultiplier), 방어 = flat 가산(castleStatHeroDef)
+function computeHeroStatValues(def, enhance) {
+  const classBase = CLASSES[def.class].baseStats;
+  // baseStatOverride로 같은 class지만 다른 hp/dmg/def 영웅 정의 가능 (딴딴기사 등).
+  // statOverride(applyHeroStats 쪽)는 range/speed/interval 등 비-스케일링 스탯에만 적용.
+  const base = def.baseStatOverride ? { ...classBase, ...def.baseStatOverride } : classBase;
   const rMult = RARITY_MULT[def.rarity] || 1;
-  const eRate = ENHANCE_RATE[def.rarity] || 0.005;
-  const eMult = 1 + clampEnhance(hero.enhance) * eRate;
   const atkMult = getHeroDamageMultiplier();
-  const tLvl = (classTrainLevels && classTrainLevels[def.class]) || 0;
-  const tMult = 1 + tLvl * CLASS_TRAIN_PER;
-  const base = cls.baseStats;
-  hero.maxHp = Math.floor(base.maxHp * rMult * eMult * tMult);
-  hero.damage = Math.max(1, Math.floor(base.damage * rMult * eMult * atkMult * tMult));
-  // 영웅 방어력 — 클래스 baseStats + 수련관 인구 보너스 (flat 가산, 소수점 → floor)
-  hero.defense = Math.floor(
-    (base.defense || 0) * rMult * eMult * tMult
-    + castleStatHeroDef * STAT_HERO_DEF_PER_POINT
-  );
+  const tMult = 1 + ((classTrainLevels && classTrainLevels[def.class]) || 0) * CLASS_TRAIN_PER;
+  const eAmt = clampEnhance(enhance);
+  // 강화 = 등급 적용된 '실효 기본 스탯'에 정수 flat 가산 (강화수만큼 base 자체가 커짐).
+  //  → 정수라 floor에 안 먹히고, 아래 %가 이 커진 스탯에 곱해진다.
+  const baseDmg = Math.floor(base.damage * rMult) + Math.max(1, Math.round(base.damage * rMult * ENHANCE_FLAT_PER)) * eAmt;
+  const baseHp  = Math.floor(base.maxHp  * rMult) + Math.max(1, Math.round(base.maxHp  * rMult * ENHANCE_FLAT_PER)) * eAmt;
+  const baseDef = Math.floor((base.defense || 0) * rMult) + Math.round((base.defense || 0) * rMult * ENHANCE_FLAT_PER) * eAmt;
+  // 훈련(%)·인구공격(%)은 강화 포함 실효 스탯에 곱 → 강화 많은 영웅일수록 % 절대 효과 커짐.
+  // 인구방어(castleStatHeroDef)는 flat 가산.
+  return {
+    maxHp: Math.floor(baseHp * tMult),
+    damage: Math.max(1, Math.floor(baseDmg * atkMult * tMult)),
+    defense: Math.floor(baseDef * tMult + castleStatHeroDef * STAT_HERO_DEF_PER_POINT),
+  };
+}
+
+function applyHeroStats(hero) {
+  const classBase = CLASSES[hero.heroDef.class].baseStats;
+  const base = hero.heroDef.baseStatOverride
+    ? { ...classBase, ...hero.heroDef.baseStatOverride }
+    : classBase;
+  const s = computeHeroStatValues(hero.heroDef, hero.enhance);
+  hero.maxHp = s.maxHp;
+  hero.damage = s.damage;
+  hero.defense = s.defense;
   hero.detectRange = base.detectRange;
   hero.attackRange = base.attackRange;
   hero.attackInterval = base.attackInterval;
   hero.speed = base.speed;
   hero.aoeRadius = base.aoeRadius || 0;
+  // Hero-level override (백스오: 짧은 사거리/빠른 평타 등 class baseStats를 덮어쓰기)
+  const o = hero.heroDef.statOverride;
+  if (o) {
+    if (o.detectRange != null)    hero.detectRange = o.detectRange;
+    if (o.attackRange != null)    hero.attackRange = o.attackRange;
+    if (o.attackInterval != null) hero.attackInterval = o.attackInterval;
+    if (o.speed != null)          hero.speed = o.speed;
+    if (o.aoeRadius != null)      hero.aoeRadius = o.aoeRadius;
+  }
 }
 
 // === Hero death / respawn ==================================================
@@ -1560,6 +3026,7 @@ function killHero(scene, hero) {
   hero.setActive(false);
   hero.target = null;
   hero.isBeingDragged = false;
+  if (hero._rangeRing) { hero._rangeRing.destroy(); hero._rangeRing = null; }
   releaseHomeAnchor(hero);
   if (hero.hpBar) {
     hero.hpBar.bg.setVisible(false);
@@ -1877,7 +3344,7 @@ function startStage(scene) {
 
   if (scene.spawnTimer) scene.spawnTimer.remove();
   scene.spawnTimer = scene.time.addEvent({
-    delay: ENEMY_SPAWN_DELAY,
+    delay: getStageSpawnDelay(stage), // stage 1~50 동안 3000→1000 선형 감소, 이후 1000 고정
     loop: true,
     callback: () => trySpawnEnemy(scene),
   });
@@ -2064,6 +3531,28 @@ function showStageClearBanner(scene, bonus) {
   showBossResultBanner(scene, true);
 }
 
+// 보상 아이콘 N개가 시작점에서 흩뿌려져 HUD 재화 카운터로 빨려가는 연출 (보스 결과 = 가이드 미션 공용)
+function flyRewardToHud(scene, startX, startY, iconKey, targetPill, count, delay0) {
+  if (!targetPill) return;
+  const tx = targetPill.x, ty = targetPill.y;
+  const d0 = delay0 || 0;
+  for (let i = 0; i < count; i++) {
+    const small = scene.add.image(startX, startY, iconKey).setDisplaySize(22, 22).setDepth(74).setAlpha(0);
+    const ang = Math.random() * Math.PI * 2;
+    const dist = 12 + Math.random() * 18;
+    const sX = startX + Math.cos(ang) * dist, sY = startY + Math.sin(ang) * dist;
+    const bd = d0 + i * 40;
+    // 1단계: 시작점에서 약간 흩뿌림 + 등장
+    scene.tweens.add({ targets: small, x: sX, y: sY, alpha: 1, duration: 160, delay: bd, ease: 'Quad.easeOut' });
+    // 2단계: HUD pill로 빨려감 + punch
+    scene.tweens.add({
+      targets: small, x: tx, y: ty, alpha: 0, scaleX: 0.5, scaleY: 0.5,
+      duration: 420, delay: bd + 160, ease: 'Cubic.easeIn',
+      onComplete: () => { small.destroy(); if (typeof punchCounter === 'function') punchCounter(targetPill); },
+    });
+  }
+}
+
 // 보스 승리/패배 결과 banner — Layer Lab 리본 + REWARDS 영역 + 보상 카드
 // 토스트 형식 (어두운 BG 없음). 약 2.4초 후 fade out.
 function showBossResultBanner(scene, isVictory) {
@@ -2218,37 +3707,9 @@ function showBossResultBanner(scene, isVictory) {
       onComplete: () => victoryLight.destroy(),
     });
   }
-  // HUD pill로 빨려가는 작은 아이콘 N개 — fade 시점에 카드 위치에서 spawn
+  // HUD pill로 빨려가는 작은 아이콘 N개 — fade 시점에 카드 위치에서 spawn (공용 연출)
   const targetPill = isVictory ? scene.uiGems : scene.uiGold;
-  if (targetPill) {
-    const COIN_COUNT = 10;
-    const tx = targetPill.x;
-    const ty = targetPill.y;
-    for (let i = 0; i < COIN_COUNT; i++) {
-      const small = scene.add.image(cx, cyRewardCard, iconKey)
-        .setDisplaySize(22, 22).setDepth(74).setAlpha(0);
-      // 약간 흩어진 시작 위치
-      const ang = Math.random() * Math.PI * 2;
-      const dist = 12 + Math.random() * 18;
-      const startX = cx + Math.cos(ang) * dist;
-      const startY = cyRewardCard + Math.sin(ang) * dist;
-      const burstDelay = fadeDelay + i * 40;
-      // 1단계: 카드 중심에서 약간 흩뿌림 + 등장
-      scene.tweens.add({
-        targets: small, x: startX, y: startY, alpha: 1,
-        duration: 160, delay: burstDelay, ease: 'Quad.easeOut',
-      });
-      // 2단계: HUD pill로 빨려감
-      scene.tweens.add({
-        targets: small, x: tx, y: ty, alpha: 0, scaleX: 0.5, scaleY: 0.5,
-        duration: 420, delay: burstDelay + 160, ease: 'Cubic.easeIn',
-        onComplete: () => {
-          small.destroy();
-          if (typeof punchCounter === 'function') punchCounter(targetPill);
-        },
-      });
-    }
-  }
+  flyRewardToHud(scene, cx, cyRewardCard, iconKey, targetPill, 10, fadeDelay);
 }
 
 // === AI ticks ==============================================================
@@ -2273,7 +3734,18 @@ function tickAlly(scene, ally, dt, delta, time) {
     }
   }
 
-  refreshTarget(ally, scene.enemies, time);
+  // 패시브 도발 (딴딴기사 등): tauntRange 안 모든 적을 forcedTarget=self로 묶음
+  if (ally.heroDef && ally.heroDef.tauntRange) {
+    applyTauntAura(scene, ally, time);
+  }
+
+  // 힐러(응급할배 등): 적 대신 부상 아군을 target으로
+  const isHealer = ally.heroDef && ally.heroDef.attackType === 'heal';
+  if (isHealer) {
+    refreshHealTarget(ally, scene.allies, time);
+  } else {
+    refreshTarget(ally, scene.enemies, time);
+  }
   if (ally.target) {
     if (ally.homeAnchor) releaseHomeAnchor(ally);
     engageOrChase(scene, ally, ally.target, dt, delta);
@@ -2284,6 +3756,56 @@ function tickAlly(scene, ally, dt, delta, time) {
   applyCastleCollision(ally);
   syncUnit(ally);
   updateHeroAnim(scene, ally);
+}
+
+// 힐러용 타겟 갱신: 가장 부상 심한 (hp/maxHp 낮은) 아군을 detectRange 안에서 선택.
+// 자기 자신 포함. 부상자 없으면 target null → idle/home으로 복귀.
+function refreshHealTarget(healer, allyGroup, time) {
+  if (healer.target) {
+    const t = healer.target;
+    if (!t.active || t.alive === false || t.hp <= 0 || t.hp >= t.maxHp) {
+      healer.target = null;
+    } else {
+      const d = Math.hypot(t.x - healer.x, t.y - healer.y);
+      if (d > healer.detectRange * 1.6) healer.target = null;
+    }
+  }
+  if (!healer.target) {
+    let best = null, bestRatio = 1.0;
+    allyGroup.getChildren().forEach((u) => {
+      if (!u.active || u.alive === false || u.hp <= 0) return;
+      if (u.hp >= u.maxHp) return; // 완전 회복 상태는 대상 아님
+      const d = Math.hypot(u.x - healer.x, u.y - healer.y);
+      if (d > healer.detectRange) return;
+      const ratio = u.hp / u.maxHp;
+      if (ratio < bestRatio) { best = u; bestRatio = ratio; }
+    });
+    healer.target = best;
+  }
+}
+
+// 패시브 도발: tauntRange 안 적 전부 forcedTarget=hero로 매 틱 갱신.
+// forcedTargetUntil은 짧게(700ms) 둬서 범위 벗어나면 자연 해제. 220ms 간격 시각 펄스.
+function applyTauntAura(scene, hero, time) {
+  const r = hero.heroDef.tauntRange;
+  const r2 = r * r;
+  scene.enemies.getChildren().forEach((e) => {
+    if (!e.active || e.alive === false || e.hp <= 0) return;
+    const dx = e.x - hero.x, dy = e.y - hero.y;
+    if (dx * dx + dy * dy > r2) return;
+    e.forcedTarget = hero;
+    e.forcedTargetUntil = time + 700;
+  });
+  if (!hero._lastTauntPulse || time - hero._lastTauntPulse > 1200) {
+    hero._lastTauntPulse = time;
+    const ring = scene.add.circle(hero.x, hero.y, r * 0.4, 0xE8B040, 0.18)
+      .setStrokeStyle(2, 0xFFD680, 0.55).setDepth((hero.depth || 4) - 0.5);
+    scene.tweens.add({
+      targets: ring, scale: 2.5, alpha: 0,
+      duration: 1000, ease: 'Sine.easeOut',
+      onComplete: () => ring.destroy(),
+    });
+  }
 }
 
 function tickEnemy(scene, enemy, dt, delta, time) {
@@ -2371,8 +3893,34 @@ function engageOrChase(scene, unit, target, dt, delta) {
       }
     }
   } else {
-    moveUnitToward(unit, target.x, target.y, unit.speed * dt);
+    // 백스오 등 dashSpeedMult heroDef는 chase 중 빠르게 돌진 (바람돌진)
+    const dashMult = (unit.heroDef && unit.heroDef.dashSpeedMult) || 1;
+    const slowMult = effectiveSpeedMult(unit, scene.time.now);
+    moveUnitToward(unit, target.x, target.y, unit.speed * dashMult * slowMult * dt);
+    if (dashMult > 1.5 && unit.heroDef && unit.heroDef.dashTrail) {
+      spawnDashTrail(scene, unit);
+    }
   }
+}
+
+// dash 잔상 — 현재 sprite frame을 반투명 ghost로 spawn해서 fade out.
+// chase 중 60ms 간격으로 호출 → 바람 같은 모션 트레일.
+function spawnDashTrail(scene, unit) {
+  const now = scene.time.now;
+  if (unit._lastDashTrail && now - unit._lastDashTrail < 55) return;
+  unit._lastDashTrail = now;
+  const src = unit.heroSprite;
+  if (!src || !src.texture || !src.frame) return;
+  const ghost = scene.add.image(unit.x, unit.y, src.texture.key, src.frame.name);
+  ghost.setScale(src.scaleX, src.scaleY);
+  ghost.setDepth((unit.depth || 4) - 0.5);
+  ghost.setAlpha(0.5);
+  ghost.setTint(0xCFE4FF);
+  scene.tweens.add({
+    targets: ghost, alpha: 0, scaleX: src.scaleX * 0.92, scaleY: src.scaleY * 0.92,
+    duration: 280, ease: 'Quad.easeOut',
+    onComplete: () => ghost.destroy(),
+  });
 }
 
 // 성을 우회해야 하는 경우의 실효 이동 거리. 직선이 박스를 가로지르지 않으면 직선거리.
@@ -2599,19 +4147,16 @@ function refreshAllHeroStats(scene) {
 }
 
 function flashCastleLevelUp(scene) {
-  const text = scene.add.text(CENTER.x, CENTER.y - 110, `성 Lv.${castleLevel}!`, {
-    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '22px',
-    color: '#FACC15', stroke: '#1A0F08', strokeThickness: 4,
-  }).setOrigin(0.5).setDepth(50);
+  // 심플 — "Level UP!" 텍스트만 팝 등장 → 떠오르며 페이드아웃
+  const text = scene.add.text(CENTER.x, CENTER.y - 120, 'Level UP!', {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '32px',
+    color: '#FFD24A', stroke: '#1A0F08', strokeThickness: 5,
+    shadow: { offsetX: 0, offsetY: 3, color: '#000', blur: 4, fill: true },
+  }).setOrigin(0.5).setDepth(50).setAlpha(0).setScale(0.6);
+  scene.tweens.add({ targets: text, alpha: 1, scale: 1, duration: 280, ease: 'Back.easeOut' });
   scene.tweens.add({
     targets: text, y: CENTER.y - 150, alpha: 0,
-    duration: 1200, ease: 'Quad.easeOut',
-    onComplete: () => text.destroy(),
-  });
-  const glow = scene.add.circle(CENTER.x, CENTER.y, 70, 0xFFD700, 0.55).setDepth(6);
-  scene.tweens.add({
-    targets: glow, alpha: 0, scale: 1.9, duration: 800, ease: 'Quad.easeOut',
-    onComplete: () => glow.destroy(),
+    duration: 550, delay: 700, ease: 'Quad.easeIn', onComplete: () => text.destroy(),
   });
 }
 
@@ -2637,8 +4182,9 @@ function advanceOnCastle(scene, enemy, dt, delta) {
   const stopAt = CASTLE_RADIUS + enemy.attackRange * 0.4;
   if (d > stopAt) {
     if (enemy.rotates) enemy.rotation = Math.atan2(dy, dx);
-    enemy.x += (dx / d) * enemy.speed * dt;
-    enemy.y += (dy / d) * enemy.speed * dt;
+    const sm = effectiveSpeedMult(enemy, scene.time.now);
+    enemy.x += (dx / d) * enemy.speed * sm * dt;
+    enemy.y += (dy / d) * enemy.speed * sm * dt;
   } else {
     enemy.attackCooldown -= delta;
     if (enemy.attackCooldown <= 0) {
@@ -2646,6 +4192,7 @@ function advanceOnCastle(scene, enemy, dt, delta) {
       castleHP -= dmg;
       showDamagePopup(scene, CENTER.x, CENTER.y - 32, dmg, { enemy: true });
       flashCastle(scene);
+      playSfxCastleHit();
       enemy.attackCooldown = enemy.attackInterval;
     }
   }
@@ -2716,8 +4263,52 @@ function attackTarget(scene, attacker, target) {
     if (t === 'ranged') return rangedStrike(scene, attacker, target);
     if (t === 'aoe') return aoeStrike(scene, attacker, target);
     if (t === 'icefall') return icefallStrike(scene, attacker, target);
+    if (t === 'heal')   return healStrike(scene, attacker, target);
+    if (t === 'beam')   return darkBeamStrike(scene, attacker, target);
   }
   meleeStrike(scene, attacker, target);
+}
+
+// 힐러 '공격' = 아군 회복. attacker.damage를 heal 양으로 사용.
+// 시각: 타겟 위 초록 '+' 부유 + 발산 sparkle, 힐러→타겟 짧은 라인 광선.
+function healStrike(scene, healer, target) {
+  if (!target || !target.active || target.alive === false || target.hp <= 0) return;
+  const amount = Math.max(1, Math.floor(healer.damage));
+  const before = target.hp;
+  target.hp = Math.min(target.hp + amount, target.maxHp);
+  const healed = target.hp - before;
+  if (healed <= 0) return;
+  // 타겟 위 '+' 숫자
+  const txt = scene.add.text(target.x, target.y - 18, '+' + healed, {
+    fontFamily: 'BMJUA', fontStyle: 'bold',
+    fontSize: '14px', color: '#9CFF8A', stroke: '#1A4A12', strokeThickness: 3,
+  }).setOrigin(0.5, 1).setDepth(50).setScale(0.4);
+  scene.tweens.add({ targets: txt, scale: 1.05, duration: 130, ease: 'Back.easeOut' });
+  scene.tweens.add({
+    targets: txt, y: target.y - 56, alpha: 0,
+    duration: 600, delay: 180, ease: 'Quad.easeIn',
+    onComplete: () => txt.destroy(),
+  });
+  // 타겟 발 밑에 초록 빛 ring
+  const ring = scene.add.circle(target.x, target.y + 4, 8, 0x88FFA0, 0.5)
+    .setStrokeStyle(2, 0xBFFFC8, 0.8).setDepth(target.depth - 0.5);
+  scene.tweens.add({
+    targets: ring, scaleX: 2.4, scaleY: 2.4, alpha: 0,
+    duration: 480, ease: 'Quad.easeOut',
+    onComplete: () => ring.destroy(),
+  });
+  // 힐러 → 타겟 짧은 광선
+  const beam = scene.add.graphics().setDepth(20);
+  beam.lineStyle(2.5, 0xBFFFC8, 0.85);
+  beam.beginPath();
+  beam.moveTo(healer.x, healer.y - 8);
+  beam.lineTo(target.x, target.y - 4);
+  beam.strokePath();
+  scene.tweens.add({
+    targets: beam, alpha: 0,
+    duration: 260, ease: 'Quad.easeOut',
+    onComplete: () => beam.destroy(),
+  });
 }
 
 // 하늘에서 얼음 다이아몬드가 떨어져 target에 도착 시 damage + shatter.
@@ -2772,9 +4363,32 @@ function icefallStrike(scene, attacker, target) {
       target.hp -= dealt;
       showDamagePopup(scene, tx, ty - 14, dealt, { enemy: !!attacker.isEnemy });
       aggroOnHit(scene, attacker, target);
+      // 얼음 슬로우 — 1.5초간 이동속도 50%
+      applySlow(scene, target, 1500, 0.5);
       if (target.hp <= 0) onUnitDeath(scene, target);
     },
   });
+}
+
+// 슬로우 상태 적용 — 이동 관련 헬퍼가 effectiveSpeedMult로 _slowUntil/_slowMult 참조.
+// 중첩 hit는 종료 시점을 max로 갱신 (더 길게 유지). 시각: 푸른 ring 한 번 펄스.
+function applySlow(scene, target, durationMs, mult) {
+  if (!target || !target.active || target.alive === false) return;
+  const now = scene.time.now;
+  target._slowUntil = Math.max(target._slowUntil || 0, now + durationMs);
+  target._slowMult = mult;
+  const ring = scene.add.circle(target.x, target.y, 12, 0x9EE7F0, 0.4)
+    .setStrokeStyle(2, 0xCFF6FA, 0.85).setDepth(3);
+  scene.tweens.add({
+    targets: ring, scale: 1.7, alpha: 0,
+    duration: 420, ease: 'Quad.easeOut',
+    onComplete: () => ring.destroy(),
+  });
+}
+
+function effectiveSpeedMult(unit, now) {
+  if (unit._slowUntil && now < unit._slowUntil) return unit._slowMult || 1;
+  return 1;
 }
 
 function meleeStrike(scene, attacker, target) {
@@ -2797,18 +4411,73 @@ function meleeStrike(scene, attacker, target) {
   }
   flashHit(scene, target.body, target.bodyColor);
   drawSlash(scene, attacker.x, attacker.y, target.x, target.y, big);
+  playSfxSwing();
   const dealt = target.heroDef ? Math.max(1, damage - (target.defense || 0)) : damage;
   target.hp -= dealt;
+  // 영웅이 피격당하면(=적이 공격) hurt, 적/일반 타깃이면 hit
+  if (target.heroDef && attacker.isEnemy) playSfxHurt(); else playSfxHit();
   showDamagePopup(scene, target.x, target.y - 14, dealt, { crit: big, enemy: !!attacker.isEnemy });
   aggroOnHit(scene, attacker, target);
+  applyGoldPerHit(scene, attacker, target);
   if (target.hp <= 0) onUnitDeath(scene, target);
+}
+
+// 흑마법사(mage_dark) 등 attackType='beam' — 굵은 검은 일직선 빔 단발 데미지.
+// 시각: 두꺼운 어두운 줄기 + 보라 글로우 라인 + 타겟 임팩트 보라 플래시. 화살 tip 없음.
+function darkBeamStrike(scene, attacker, target) {
+  if (!target || !target.active) return;
+  const sx = attacker.x, sy = attacker.y - 6;
+  const tx = target.x, ty = target.y - 4;
+  // 1) 보라 글로우 (뒤쪽 두꺼운 빛 라인)
+  const glow = scene.add.graphics().setDepth(19);
+  glow.lineStyle(7, 0x9C3AE8, 0.55);
+  glow.lineBetween(sx, sy, tx, ty);
+  // 2) 검은 빔 (앞쪽 메인 라인)
+  const core = scene.add.graphics().setDepth(20);
+  core.lineStyle(3.5, 0x0A0014, 0.95);
+  core.lineBetween(sx, sy, tx, ty);
+  // 3) 타겟 임팩트 — 보라 플래시
+  const impact = scene.add.circle(tx, ty, 7, 0xB23AE8, 0.7).setDepth(21);
+  scene.tweens.add({
+    targets: impact, scale: 2.4, alpha: 0,
+    duration: 280, ease: 'Quad.easeOut',
+    onComplete: () => impact.destroy(),
+  });
+  scene.tweens.add({
+    targets: [glow, core], alpha: 0,
+    duration: 220, ease: 'Quad.easeOut',
+    onComplete: () => { glow.destroy(); core.destroy(); },
+  });
+  playSfxMagic();
+  flashHit(scene, target.body, target.bodyColor);
+  target.hp -= attacker.damage;
+  if (target.heroDef && attacker.isEnemy) playSfxHurt(); else playSfxHit();
+  showDamagePopup(scene, target.x, target.y - 14, attacker.damage, { enemy: !!attacker.isEnemy });
+  aggroOnHit(scene, attacker, target);
+  if (target.hp <= 0) onUnitDeath(scene, target);
+}
+
+// 산적 등 heroDef.goldPerHit 영웅: 적 타격마다 골드 획득.
+// 영웅 레벨(enhance)에 따라 +1씩 선형 증가 + 시장 인구 배율(getGoldMultiplier) 적용.
+// 시각은 몬스터 드랍과 동일한 showGoldDrop 코인 연출.
+function applyGoldPerHit(scene, attacker, target) {
+  if (!attacker.heroDef || !attacker.heroDef.goldPerHit) return;
+  if (!target.isEnemy || target.alive === false) return;
+  const base = attacker.heroDef.goldPerHit;
+  const level = attacker.enhance || 0;
+  const amount = Math.max(1, Math.floor((base + level) * getGoldMultiplier()));
+  gold += amount;
+  showGoldDrop(scene, target.x, target.y, 1);
+  updateGoldUI(scene);
 }
 
 function rangedStrike(scene, attacker, target) {
   if (!target || !target.active) return;
   drawArrowLine(scene, attacker.x, attacker.y, target.x, target.y);
+  playSfxArrow();
   flashHit(scene, target.body, target.bodyColor);
   target.hp -= attacker.damage;
+  if (target.heroDef && attacker.isEnemy) playSfxHurt(); else playSfxHit();
   showDamagePopup(scene, target.x, target.y - 14, attacker.damage, { enemy: !!attacker.isEnemy });
   aggroOnHit(scene, attacker, target);
   if (target.hp <= 0) onUnitDeath(scene, target);
@@ -2820,11 +4489,13 @@ function aoeStrike(scene, attacker, target) {
   const orbColor = attacker.heroDef ? attacker.heroDef.crestColor : 0xFF66FF;
   const orb = scene.add.circle(attacker.x, attacker.y, 6, orbColor)
     .setStrokeStyle(1.5, COLOR.white).setDepth(20);
+  playSfxMagic(); // 발사 시점 마법 소리
   scene.tweens.add({
     targets: orb, x: tx, y: ty, duration: 220,
     onComplete: () => {
       orb.destroy();
       const aoeR = attacker.aoeRadius || 50;
+      let hitAny = false;
       scene.enemies.getChildren().forEach((e) => {
         if (!e.active || e.hp <= 0) return;
         const d = Phaser.Math.Distance.Between(tx, ty, e.x, e.y);
@@ -2834,9 +4505,11 @@ function aoeStrike(scene, attacker, target) {
           showDamagePopup(scene, e.x, e.y - 14, dmg, { enemy: !!attacker.isEnemy });
           aggroOnHit(scene, attacker, e);
           flashHit(scene, e.body, e.bodyColor);
+          hitAny = true;
           if (e.hp <= 0) onUnitDeath(scene, e);
         }
       });
+      if (hitAny) playSfxHit(); // 폭발 적중 시 한 번
       drawExplosion(scene, tx, ty, aoeR, orbColor);
     },
   });
@@ -2856,20 +4529,24 @@ function onUnitDeath(scene, unit) {
       });
     }
     kills += 1;
-    gold += Math.max(1, Math.floor(GOLD_PER_KILL * getGoldMultiplier()));
+    // stage 비례 보상 스케일 (난이도 상승된 만큼 골드/경험치 ↑)
+    const rewardScale = getStageRewardScale(stage);
+    const goldGain = Math.max(1, Math.floor(GOLD_PER_KILL * rewardScale * getGoldMultiplier()));
+    gold += goldGain;
     updateKillsUI(scene);
     updateGoldUI(scene);
     showGoldDrop(scene, unit.x, unit.y, unit.isBoss ? 4 : 1);
-    showGoldGainPopup(scene, GOLD_PER_KILL);
+    showGoldGainPopup(scene, goldGain);
 
     if (unit.isBoss) {
       gems += GEMS_PER_BOSS;
       updateGemsUI(scene);
       updateTavernButton(scene);
-      showGemDrop(scene, unit.x, unit.y, GEMS_PER_BOSS);
+      // 보석 드롭 연출 제거 — 보스 보상은 스테이지 결과 banner에서 표시 (중복 회피)
     }
 
-    addCastleExp(scene, unit.isBoss ? CASTLE_EXP_PER_BOSS : CASTLE_EXP_PER_MOB);
+    const expBase = unit.isBoss ? CASTLE_EXP_PER_BOSS : CASTLE_EXP_PER_MOB;
+    addCastleExp(scene, Math.max(1, Math.floor(expBase * rewardScale)));
 
     if (unit.isBoss) onBossKilled(scene);
     else onMobKilled(scene);
@@ -3193,16 +4870,18 @@ function drawTopUI(scene) {
 
   // === Backgrounds === (제거 — 배경 그대로 노출)
 
-  // === Left: 정사각형 프로필 (graphics rectangle, 라운드 없음) ===
+  // === Left: 정사각형 프로필 — K-288 프레임 깔고 그 위 portrait. 아웃라인 유지되게 안쪽 fit ===
   const avatarSize = 77;
   const avatarX = 12 + avatarSize / 2;
-  // 검은 외곽선만 (배경은 portrait 이미지가 채움)
-  scene.add.rectangle(avatarX, cy, avatarSize, avatarSize, 0x6B6B7A)
-    .setStrokeStyle(4, 0x1B3258).setDepth(42);
-  // 유저 프로필 portrait — 디폴트 portrait_01, 정사각형 영역 꽉 차게
-  const portraitInner = avatarSize - 4; // 외곽선 안쪽
+  // (1) 프레임 자산
+  scene.add.image(avatarX, cy, 'profile_frame')
+    .setDisplaySize(avatarSize, avatarSize).setDepth(42);
+  // (2) portrait — 검정 외곽선 안쪽까지 fit (자산 외곽선 + 어두운 BG 안쪽으로 더 들어감)
+  const portraitInner = avatarSize * 0.83;
   scene.uiAvatarSprite = scene.add.image(avatarX, cy, scene.userProfileKey || 'portrait_01')
-    .setDisplaySize(portraitInner, portraitInner).setDepth(43);
+    .setDisplaySize(portraitInner, portraitInner).setDepth(43)
+    .setInteractive({ useHandCursor: true });
+  scene.uiAvatarSprite.on('pointerup', () => openProfileModal(scene));
 
   // 우측 텍스트 영역
   const textX = avatarX + avatarSize / 2 + 10;
@@ -3331,7 +5010,7 @@ function buildStagePanel(scene) {
   const smallBadge = 22;
   const startMarker = scene.add.image(barLeft, barY, 'ui_stage_diamond_blue')
     .setDisplaySize(smallBadge, smallBadge).setDepth(43);
-  const midMarker = scene.add.image(barX, barY, 'ui_stage_diamond_blue')
+  const midMarker = scene.add.image(barX, barY, 'ui_stage_diamond_gray') // 디폴트 딤 — 바가 중앙 지나면 점등
     .setDisplaySize(smallBadge, smallBadge).setDepth(43);
 
   // === 보스 마커 (오른쪽 끝, BOSS 라벨 + 클릭 시 도전) ===
@@ -3422,6 +5101,12 @@ function updateStageUI(scene) {
     );
   }
 
+  // 중간 마커: 진행 바가 중앙(50%)을 지나면 점등 (딤 gray → blue)
+  const midKey = pct >= 0.5 ? 'ui_stage_diamond_blue' : 'ui_stage_diamond_gray';
+  if (sp.midMarker.texture.key !== midKey) {
+    sp.midMarker.setTexture(midKey).setDisplaySize(22, 22);
+  }
+
   // 보스 마커: 도전 가능 시 노란 다이아 + 해골 컬러 + 흔들림, 아니면 그레이 다이아 + 어두운 해골
   const ready = canChallengeBoss();
   if (ready) {
@@ -3471,10 +5156,653 @@ function drawTavernButton(scene) {
   }).setOrigin(0.5).setDepth(40);
 }
 
+// === 스테이지 돌파 보상 (Stage Level Reward) — HUD 진입 버튼 ===
+function drawStageRewardButton(scene) {
+  const x = GAME_W - 36, y = TOP_UI_HEIGHT + 122 + 88; // 영웅 소환 버튼 아래
+  const icon = scene.add.image(x, y, 'sr_chest')
+    .setDisplaySize(58, 58).setDepth(40)
+    .setInteractive({ useHandCursor: true });
+  icon.on('pointerover', () => icon.setDisplaySize(62, 62));
+  icon.on('pointerout',  () => icon.setDisplaySize(58, 58));
+  icon.on('pointerdown', () => openStageRewardPanel(scene));
+  scene.add.text(x, y + 32, '돌파 보상', {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '11px',
+    color: '#FFFFFF', stroke: '#000000', strokeThickness: 3,
+  }).setOrigin(0.5).setDepth(40);
+  const dot = scene.add.image(x + 20, y - 22, 'ui_red_dot')
+    .setDisplaySize(16, 16).setDepth(42).setVisible(false);
+  scene.stageRewardBtn = { icon, dot, x, y };
+  refreshStageRewardButton(scene);
+}
+
+function refreshStageRewardButton(scene) {
+  if (!scene.stageRewardBtn) return;
+  scene.stageRewardBtn.dot.setVisible(hasStageRewardReady());
+}
+
+function openStageRewardPanel(scene) {
+  if (scene.stageRewardPanel) return;
+  const els = [];
+  const HEADER_H = 70;
+  const CONTENT_TOP = HEADER_H + 6;
+  const CONTENT_BOT = GAME_H - 70; // 좌하단 뒤로가기 자리
+  const CONTENT_H = CONTENT_BOT - CONTENT_TOP;
+  const ROW_H = 126; // 149에서 더 좁힘 (~85%)
+  const ROWS = STAGE_REWARDS.length;
+
+  // 풀스크린 배경 — 사용자 제공 이미지를 화면 전체로 채움. 빈 곳 없이 위 끝까지 패턴 노출.
+  const solidBg = scene.add.rectangle(GAME_W / 2, GAME_H / 2, GAME_W, GAME_H, 0x3A7BC8, 1)
+    .setDepth(99).setInteractive(); // drag/wheel 입력 받는 풀스크린
+  // 자산을 화면 전체로 stretch — 사용자 제공 BG 이미지를 화면 BG로 그대로 사용
+  const baseBg = scene.add.image(GAME_W / 2, GAME_H / 2, 'sr_panel_bg')
+    .setOrigin(0.5, 0.5).setDisplaySize(GAME_W, GAME_H).setDepth(100);
+  els.push(solidBg, baseBg);
+
+  // 헤더 — 반투명 검정 띠 + 한글 제목 + 부제목 (작고 옅은 컬러)
+  const headerBg = scene.add.rectangle(GAME_W / 2, HEADER_H / 2, GAME_W, HEADER_H, 0x000000).setDepth(103).setAlpha(0.6);
+  const headerTxt = scene.add.text(20, 26, '스테이지 돌파 보상', {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '22px', color: '#FFFFFF', stroke: '#000', strokeThickness: 4,
+  }).setOrigin(0, 0.5).setDepth(104);
+  const headerSubTxt = scene.add.text(20, 52, '스테이지를 돌파하면 보상을 획득 할 수 있어요!', {
+    fontFamily: 'BMJUA', fontSize: '11px', color: '#9FC2E8',
+  }).setOrigin(0, 0.5).setDepth(104);
+  els.push(headerBg, headerTxt, headerSubTxt);
+  // 헤더 하단 검은 줄 (alpha 0.95) — 헤더와 본문 경계 강조
+  const headerBottomLine = scene.add.rectangle(GAME_W / 2, HEADER_H + 1, GAME_W, 2, 0x000000)
+    .setDepth(103).setAlpha(0.95);
+  els.push(headerBottomLine);
+
+  // 스크롤 마스크 + 컨테이너 — 마스크는 화면 전체(y=0~GAME_H). 뒤로가기 버튼은 더 위 depth로 별도.
+  const maskShape = scene.add.graphics().setDepth(101);
+  maskShape.fillStyle(0xffffff).fillRect(0, 0, GAME_W, GAME_H);
+  maskShape.setVisible(false);
+  const mask = maskShape.createGeometryMask();
+  const container = scene.add.container(0, 0).setDepth(101);
+  container.setMask(mask);
+  els.push(maskShape, container);
+
+  // 트랙 (좌측) — 카드 좌단에서 0.5cm(~17px) 정도 띄움 (1.5×0.9 = 1.35배)
+  const trackX = 113;
+  const startY = CONTENT_TOP + 81; // 90 × 0.9
+  const trackTopY = startY;                              // 첫 노드 y (위쪽: stage 100)
+  const trackBotY = startY + (ROWS - 1) * ROW_H;         // 마지막 노드 y (아래: stage 5)
+  const trackH = trackBotY - trackTopY;
+  const trackMidY = (trackTopY + trackBotY) / 2;
+  const trackW = 19; // 21 × 0.9
+  const trackDark = scene.add.nineslice(trackX, trackMidY, 'ui_stage_bar_bg', null, trackW * 2, trackH * 2, 4, 4, 4, 4)
+    .setScale(0.5).setDepth(101).setTint(0x14253E);
+  container.add(trackDark);
+  // 진행 청록 (아래쪽 = 클리어한 stage부터 차오름)
+  let progIdx = -1;
+  for (let i = 0; i < ROWS; i++) if (stage > STAGE_REWARDS[i].stage) progIdx = i;
+  if (progIdx >= 0) {
+    const progTopY = startY + (ROWS - 1 - progIdx) * ROW_H;
+    const progH = trackBotY - progTopY;
+    const progMidY = (progTopY + trackBotY) / 2;
+    const progFill = scene.add.nineslice(trackX, progMidY, 'ui_stage_bar_bg', null, (trackW - 4) * 2, progH * 2, 4, 4, 4, 4)
+      .setScale(0.5).setDepth(102).setTint(0x4DC8F0);
+    container.add(progFill);
+  }
+
+  // 첫 미달성 idx (Next 표시용)
+  let nextIdx = -1;
+  for (let i = ROWS - 1; i >= 0; i--) if (stage <= STAGE_REWARDS[i].stage) nextIdx = i;
+
+  // 마일스톤 카드 (위가 큰 stage, 아래 작은)
+  STAGE_REWARDS.forEach((r, idx) => {
+    const rowY = startY + (ROWS - 1 - idx) * ROW_H;
+    addStageRewardRow(scene, container, r, rowY, trackX, idx === nextIdx);
+  });
+
+  // 좌하단 뒤로가기 — 클릭 반응(hover 확대 + click 축소) tween으로 부드럽게
+  const backBtn = scene.add.image(-15, GAME_H - 38, 'sr_back_btn')
+    .setOrigin(0, 1).setDisplaySize(100, 80).setDepth(105).setInteractive({ useHandCursor: true });
+  const backBaseSX = backBtn.scaleX, backBaseSY = backBtn.scaleY;
+  const backTween = (sx, sy, dur) => {
+    if (backBtn._t) backBtn._t.stop();
+    backBtn._t = scene.tweens.add({ targets: backBtn, scaleX: sx, scaleY: sy, duration: dur, ease: 'Quad.easeOut' });
+  };
+  backBtn.on('pointerover',     () => backTween(backBaseSX * 1.06, backBaseSY * 1.06, 110));
+  backBtn.on('pointerout',      () => backTween(backBaseSX, backBaseSY, 110));
+  backBtn.on('pointerdown',     () => backTween(backBaseSX * 0.88, backBaseSY * 0.88, 60));
+  backBtn.on('pointerup',       () => { backTween(backBaseSX, backBaseSY, 80); closeStageRewardPanel(scene); });
+  backBtn.on('pointerupoutside',() => backTween(backBaseSX, backBaseSY, 80));
+  els.push(backBtn);
+
+  // 스크롤 — 초기 위치: 현재 진행도 행이 화면 위쪽 1/3 지점 (위/아래 모두 카드가 빈 곳 없이 보이게)
+  const focusIdx = Math.max(0, Math.min(ROWS - 1, progIdx + 1));
+  const focusY = startY + (ROWS - 1 - focusIdx) * ROW_H;
+  const minY = CONTENT_BOT - (trackBotY + 60);
+  const initOffset = Phaser.Math.Clamp(CONTENT_TOP + CONTENT_H / 3 - focusY, Math.min(0, minY), 0);
+  container.y = initOffset;
+
+  const clampContY = (y) => Phaser.Math.Clamp(y, Math.min(0, minY), 0);
+
+  // drag 스크롤
+  let dragStartY = null, contStartY = 0, dragMoved = false;
+  solidBg.on('pointerdown', (p) => { dragStartY = p.y; contStartY = container.y; dragMoved = false; });
+  solidBg.on('pointermove', (p) => {
+    if (dragStartY == null) return;
+    const dy = p.y - dragStartY;
+    if (Math.abs(dy) > 4) dragMoved = true;
+    container.y = clampContY(contStartY + dy);
+  });
+  const endDrag = () => { dragStartY = null; };
+  solidBg.on('pointerup', endDrag);
+  solidBg.on('pointerupoutside', endDrag);
+
+  // 마우스 휠 스크롤 — 패널 열린 동안만 활성
+  const wheelHandler = (pointer, gameObjects, dx, dy) => {
+    if (!scene.stageRewardPanel) return;
+    container.y = clampContY(container.y - dy * 0.6);
+  };
+  scene.input.on('wheel', wheelHandler);
+
+  scene.stageRewardPanel = { els, container, wheelHandler };
+}
+
+function addStageRewardRow(scene, container, reward, rowY, trackX, isNext) {
+  const state = getStageRewardState(reward); // claimed / canClaim / locked
+
+  // 좌측 노드 — 필드 스테이지 바와 동일 다이아 — 1.35배 (1.5 × 0.9)
+  const nodeKey = state === 'canClaim' ? 'ui_stage_diamond_yellow'
+    : (state === 'claimed' ? 'ui_stage_diamond_blue' : 'ui_stage_diamond_gray');
+  const nodeSize = state === 'canClaim' ? 38 : 30; // 42/33 × 0.9
+  const node = scene.add.image(trackX, rowY, nodeKey)
+    .setDisplaySize(nodeSize, nodeSize).setDepth(103);
+  container.add(node);
+
+  // 카드 — Layer Lab K-263. 1.5×0.9 = 1.35배
+  const cardKey = state === 'claimed' ? 'sr_card_claimed'
+    : (state === 'canClaim' ? 'sr_card_can' : 'sr_card_locked');
+  const cardW = 340, cardH = 121;         // 378×134 × 0.9
+  const cardCX = trackX + 17 + cardW / 2;
+  const card = scene.add.image(cardCX, rowY, cardKey).setDisplaySize(cardW, cardH).setDepth(102);
+  container.add(card);
+
+  // 카드 자산 내부 비율
+  const cardLeftX = cardCX - cardW / 2;
+  const hexCX = cardCX + cardW * 0.31;
+  const textCX = cardLeftX + 43;          // 48 × 0.9
+
+  // "N Stage" 텍스트 — 상태별 컬러
+  // locked(기본): BG 유사 파란색 / canClaim(수령 가능): 검정 / claimed(완료): 딤드
+  const numColor = state === 'locked' ? '#3A7BC8' : (state === 'canClaim' ? '#1A1A1A' : '#A8B4C6');
+  const wordColor = state === 'locked' ? '#5A9BD8' : (state === 'canClaim' ? '#444444' : '#B8C4D6');
+  const numTxt = scene.add.text(textCX, rowY, String(reward.stage), {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '46px', color: numColor,
+  }).setOrigin(0, 0.5).setDepth(103);
+  const wordTxt = scene.add.text(textCX + numTxt.width + 8, rowY + 5, 'Stage', {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '27px', color: wordColor,
+  }).setOrigin(0, 0.5).setDepth(103);
+  container.add([numTxt, wordTxt]);
+
+  // Next 깃발 — 추가로 30% 감소 (76×34 → 53×24), 위치 살짝 아래로
+  if (isNext) {
+    const flagY = rowY - cardH / 2 + 30;
+    const ribbon = scene.add.image(cardLeftX + 40, flagY, 'sr_next_flag')
+      .setDisplaySize(53, 24).setDepth(104);
+    const nextLbl = scene.add.text(cardLeftX + 40 - 3, flagY - 2, 'Next', {
+      fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '11px',
+      color: '#FFFFFF', stroke: '#7A1818', strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(105);
+    container.add([ribbon, nextLbl]);
+  }
+
+  // 우측 헥사곤 안 보석 + 수량 — 1.35배, 헥사곤 시각 중심 보정 위해 살짝 우측 시프트
+  const gemX = hexCX + 6;
+  const gem = scene.add.image(gemX, rowY, 'ui_rb_icon_gem').setDisplaySize(76, 76).setDepth(103);
+  if (state === 'claimed') gem.setAlpha(0.45);
+  const rewardTxt = scene.add.text(gemX, rowY + 22, String(reward.gems), {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '19px',
+    color: '#FFFFFF', stroke: '#000', strokeThickness: 3,
+  }).setOrigin(0.5).setDepth(104);
+  container.add([gem, rewardTxt]);
+
+  // 체크 (claimed) — 우측 헥사곤 우상단
+  if (state === 'claimed') {
+    const check = scene.add.image(hexCX + 28, rowY - 24, 'sr_check').setDisplaySize(26, 26).setDepth(106);
+    container.add(check);
+  }
+
+  // canClaim → 카드 전체 클릭으로 수령
+  if (state === 'canClaim') {
+    card.setInteractive({ useHandCursor: true });
+    card.on('pointerup', () => {
+      if (claimStageReward(scene, reward.stage)) {
+        flyRewardToHud(scene, hexCX, rowY, 'ui_rb_icon_gem', scene.uiGems, 8, 0);
+        closeStageRewardPanel(scene);
+        scene.time.delayedCall(900, () => openStageRewardPanel(scene));
+      }
+    });
+  }
+}
+
+function closeStageRewardPanel(scene) {
+  const p = scene.stageRewardPanel;
+  if (!p) return;
+  if (p.wheelHandler) { try { scene.input.off('wheel', p.wheelHandler); } catch (e) {} }
+  if (p.container) { try { p.container.clearMask(true); } catch (e) {} p.container.destroy(); }
+  p.els.forEach((e) => e && e.destroy && e.destroy());
+  scene.stageRewardPanel = null;
+}
+
+// === 프로필 모달 — HUD 아바타 클릭 시 표시 ==================================
+function openProfileModal(scene) {
+  if (scene.profileModal) return;
+  const els = [];
+
+  // 풀스크린 dim — 클릭 가로채기
+  const dim = scene.add.rectangle(GAME_W / 2, GAME_H / 2, GAME_W, GAME_H, 0x000000, 0.6)
+    .setDepth(150).setInteractive();
+  els.push(dim);
+
+  // 모달 BG — K-335 자산 (X마크 포함되어 있음). 사이즈 10% 감소
+  const modalW = 414, modalH = 495;
+  const modalCX = GAME_W / 2, modalCY = GAME_H / 2 - 20;
+  const bg = scene.add.image(modalCX, modalCY, 'profile_modal_bg')
+    .setDisplaySize(modalW, modalH).setDepth(151);
+  els.push(bg);
+
+  const modalTop = modalCY - modalH / 2;
+  const modalLeft = modalCX - modalW / 2;
+  const modalRight = modalCX + modalW / 2;
+
+  // 모든 텍스트 공용 — 아래쪽 검은 그림자
+  const addShadow = (t) => t.setShadow(0, 2, '#000000', 2, true, true);
+
+  // 헤더 "프로필" (한글)
+  const headerTxt = scene.add.text(modalCX, modalTop + 28, '프로필', {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '22px',
+    color: '#FFFFFF', stroke: '#1B3258', strokeThickness: 4,
+  }).setOrigin(0.5).setDepth(152);
+  addShadow(headerTxt);
+  els.push(headerTxt);
+
+  // X 닫기 — BG 자산에 이미 X마크 있음. 그 위치에 투명 hit zone만.
+  // 자산상 X마크 = 우상단(자산 583×697 기준 약 x=505 y=50 ~ 정사각형 ~ 60px). 표시 비율: 460/583, 모달 좌표로 환산.
+  const closeX = modalRight - 30, closeY = modalTop + 30;
+  const closeHit = scene.add.rectangle(closeX, closeY, 42, 42, 0x000000, 0)
+    .setDepth(155).setInteractive({ useHandCursor: true });
+  closeHit.on('pointerup', () => closeProfileModal(scene));
+  els.push(closeHit);
+
+  // === 좌측 portrait + 우측 닉네임/ID/성레벨 — 0.6cm 위로 ===
+  const headRowY = modalTop + 122; // 145 → 122 (23px ≈ 0.6cm 위로)
+  const frameSize = 100;
+  const portraitX = modalLeft + 36 + frameSize / 2;
+  const portraitSize = frameSize * 0.83;
+  // (1) 프레임 자산 깔기 (K-288)
+  const portraitFrame = scene.add.image(portraitX, headRowY, 'profile_frame')
+    .setDisplaySize(frameSize, frameSize).setDepth(152);
+  // (2) portrait 자산 그 위에
+  const portraitImg = scene.add.image(portraitX, headRowY, scene.userProfileKey || 'portrait_01')
+    .setDisplaySize(portraitSize, portraitSize).setDepth(153);
+
+  // (3) hover overlay (검정 어둠) + 연필 아이콘 — 마우스 오버 시 alpha 0.7로 등장
+  const portraitDim = scene.add.rectangle(portraitX, headRowY, portraitSize, portraitSize, 0x000000, 0)
+    .setDepth(154);
+  const portraitPencil = scene.add.image(portraitX, headRowY, 'icon_pencil')
+    .setDisplaySize(32, 32).setDepth(155).setAlpha(0);
+  // 클릭 받는 풀 hit zone (frame 전체)
+  const portraitHit = scene.add.rectangle(portraitX, headRowY, frameSize, frameSize, 0x000000, 0)
+    .setDepth(156).setInteractive({ useHandCursor: true });
+  portraitHit.on('pointerover', () => {
+    portraitDim.setFillStyle(0x000000, 0.35);
+    portraitPencil.setAlpha(0.7);
+  });
+  portraitHit.on('pointerout', () => {
+    portraitDim.setFillStyle(0x000000, 0);
+    portraitPencil.setAlpha(0);
+  });
+  portraitHit.on('pointerup', () => openPortraitPicker(scene));
+  els.push(portraitFrame, portraitImg, portraitDim, portraitPencil, portraitHit);
+
+  // 우측 닉네임 — portrait 윗 기준 (간격 조정)
+  const nameX = portraitX + portraitSize / 2 + 16;
+  const nameTxt = scene.add.text(nameX, headRowY - 32, castleNickname, {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '26px',
+    color: '#FFFFFF', stroke: '#1B3258', strokeThickness: 4,
+  }).setOrigin(0, 0.5).setDepth(152);
+  addShadow(nameTxt);
+  els.push(nameTxt);
+
+  // 닉네임 옆 연필 아이콘 — 검정 외곽선 + 검정 그림자 + 흰 본체
+  const editIconX = nameX + nameTxt.width + 18;
+  const editIconY = headRowY - 32;
+  const PENCIL_SIZE = 24;
+  // (1) 그림자 — 본체 아래로 명확하게 (텍스트 그림자처럼 보이도록 2단계 stamp)
+  const pencilShadow1 = scene.add.image(editIconX, editIconY + 3, 'icon_pencil')
+    .setDisplaySize(PENCIL_SIZE, PENCIL_SIZE).setTint(0x000000).setAlpha(0.65).setDepth(152);
+  const pencilShadow2 = scene.add.image(editIconX, editIconY + 5, 'icon_pencil')
+    .setDisplaySize(PENCIL_SIZE, PENCIL_SIZE).setTint(0x000000).setAlpha(0.35).setDepth(152);
+  // (2) 검정 외곽선 — 8방향 1.5px 복제 stamp
+  const outlineOffsets = [[-1.5,0],[1.5,0],[0,-1.5],[0,1.5],[-1.1,-1.1],[1.1,-1.1],[-1.1,1.1],[1.1,1.1]];
+  const pencilOutlines = outlineOffsets.map(([dx, dy]) =>
+    scene.add.image(editIconX + dx, editIconY + dy, 'icon_pencil')
+      .setDisplaySize(PENCIL_SIZE, PENCIL_SIZE).setTint(0x000000).setDepth(153)
+  );
+  // (3) 본체 — 흰색 (interactive)
+  const editIcon = scene.add.image(editIconX, editIconY, 'icon_pencil')
+    .setDisplaySize(PENCIL_SIZE, PENCIL_SIZE).setDepth(154)
+    .setInteractive({ useHandCursor: true });
+  editIcon.on('pointerup', () => openNicknameEdit(scene));
+  els.push(pencilShadow1, pencilShadow2, ...pencilOutlines, editIcon);
+
+  // Player ID — 닉네임 아래 (간격 넓힘)
+  if (!scene.playerId) scene.playerId = 'Pk-' + Math.floor(100000 + Math.random() * 900000);
+  const idTxt = scene.add.text(nameX, headRowY - 8, '플레이어 ID  ' + scene.playerId, {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '11px',
+    color: '#B8A0FF', stroke: '#000000', strokeThickness: 2,
+  }).setOrigin(0, 0.5).setDepth(152);
+  addShadow(idTxt);
+  els.push(idTxt);
+
+  // 성 레벨 — 아이콘 (이전 2배의 80% = 약 38px) + portrait 아랫 기준 정렬
+  const castleH = 38;                            // 48 → 38 (20% 감소)
+  const castleW = castleH * (123 / 101);
+  const castleY = headRowY + 46 - castleH / 2;   // 아이콘 하단 = portrait 하단
+  const castleImg = scene.add.image(nameX + castleW / 2, castleY, 'ui_icon_castle')
+    .setDisplaySize(castleW, castleH).setDepth(152);
+  const castleLbl = scene.add.text(nameX + castleW + 8, castleY - 12, '성 레벨', {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '12px',
+    color: '#FFFFFF', stroke: '#1F0410', strokeThickness: 3,
+  }).setOrigin(0, 0.5).setDepth(152);
+  const castleNum = scene.add.text(nameX + castleW + 8, castleY + 10, String(castleLevel || 1), {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '18px',
+    color: '#FFE96B', stroke: '#1F0410', strokeThickness: 3,
+  }).setOrigin(0, 0.5).setDepth(152);
+  addShadow(castleLbl); addShadow(castleNum);
+  els.push(castleImg, castleLbl, castleNum);
+
+  // === STATS 영역 ===
+  const statsHeaderY = headRowY + 127; // 이전 +176에서 49px(=1.3cm) 위로
+  const statsHeaderTxt = scene.add.text(modalCX, statsHeaderY, 'STATS', {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '15px',
+    color: '#FFFFFF', stroke: '#1B3258', strokeThickness: 3,
+  }).setOrigin(0.5).setDepth(152);
+  addShadow(statsHeaderTxt);
+  els.push(statsHeaderTxt);
+
+  // 6개 stat (2x3 grid). 실 데이터 + 좌측 아이콘.
+  const heroCount = Object.keys(scene.heroInventory || {}).length;
+  const stats = [
+    { label: '스테이지 클리어',  value: '스테이지 ' + (typeof stage === 'number' ? stage : 1), icon: 'profile_stat_stage' },
+    { label: '랭킹',            value: '집계중',                                                icon: 'profile_stat_ranking' },
+    { label: '사용 보석',        value: String(totalGemsSpent || 0),                            icon: 'profile_stat_gem' },
+    { label: '사용 골드',        value: String(totalGoldSpent || 0),                            icon: 'profile_stat_gold' },
+    { label: '몬스터 처치',      value: String(kills || 0),                                     icon: 'profile_stat_kill' },
+    { label: '영웅 보유 수',     value: String(heroCount),                                      icon: 'profile_stat_hero' },
+  ];
+
+  const colCount = 2;
+  const cellW = (modalW - 60) / colCount;
+  const cellH = 56;
+  const statsStartY = statsHeaderY + 22;
+  stats.forEach((s, i) => {
+    const col = i % colCount, row = Math.floor(i / colCount);
+    const sx = modalLeft + 30 + cellW * (col + 0.5);
+    const sy = statsStartY + cellH * (row + 0.5);
+    // 셀 BG — K-244 자산
+    const cellBg = scene.add.image(sx, sy, 'stat_cell_bg')
+      .setDisplaySize(cellW - 12, cellH - 8).setDepth(152);
+    // 아이콘 — 셀 좌측 가장자리에서 살짝 외부로 삐져나옴
+    const iconImg = scene.add.image(sx - (cellW - 12) / 2 + 10, sy + 2, s.icon)
+      .setDisplaySize(51, 51).setDepth(153);
+    // 라벨 — 셀 상단 외곽선 라인에 걸침 (노란색 강조)
+    const labelTxt = scene.add.text(sx, sy - (cellH - 8) / 2, s.label, {
+      fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '11px',
+      color: '#FFE96B', stroke: '#0E1A2D', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(154);
+    // 값 — 아이콘 우측 (셀 우측 영역, 큰 아이콘에 맞춰 더 우측)
+    const valueTxt = scene.add.text(sx + 22, sy + 4, s.value, {
+      fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '17px',
+      color: '#FFFFFF', stroke: '#0E1A2D', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(154);
+    addShadow(labelTxt); addShadow(valueTxt);
+    els.push(cellBg, iconImg, labelTxt, valueTxt);
+  });
+
+  scene.profileModal = { els };
+}
+
+function closeProfileModal(scene) {
+  const p = scene.profileModal;
+  if (!p) return;
+  p.els.forEach((e) => e && e.destroy && e.destroy());
+  scene.profileModal = null;
+}
+
+// === 프로필 사진 선택 — portraits/ 폴더의 43개 자산 그리드 ====================
+function openPortraitPicker(scene) {
+  if (scene.portraitPicker) return;
+  const els = [];
+
+  // 풀스크린 dim (모달 위 layer). dim 바깥 클릭하면 닫기.
+  const dim = scene.add.rectangle(GAME_W / 2, GAME_H / 2, GAME_W, GAME_H, 0x000000, 0.75)
+    .setDepth(200).setInteractive();
+  dim.on('pointerup', () => closePortraitPicker(scene));
+  els.push(dim);
+
+  // 헤더
+  const headerTxt = scene.add.text(GAME_W / 2, 50, '프로필 선택', {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '24px',
+    color: '#FFFFFF', stroke: '#000', strokeThickness: 4,
+  }).setOrigin(0.5).setDepth(201);
+  headerTxt.setShadow(0, 2, '#000000', 2, true, true);
+  els.push(headerTxt);
+
+  // X 닫기 (우상단) — Layer Lab K-240 빨간 X 자산
+  const closeX = GAME_W - 36, closeY = 50;
+  const closeBtn = scene.add.image(closeX, closeY, 'btn_close_x')
+    .setDisplaySize(44, 44).setDepth(201)
+    .setInteractive({ useHandCursor: true });
+  closeBtn.on('pointerdown', () => closeBtn.setScale(closeBtn.scaleX * 0.9, closeBtn.scaleY * 0.9));
+  closeBtn.on('pointerup', () => closePortraitPicker(scene));
+  els.push(closeBtn);
+
+  // 그리드 — 5열, 9행 (43개)
+  const cols = 5;
+  const cellSize = 86;
+  const gap = 8;
+  const gridW = cols * cellSize + (cols - 1) * gap;
+  const startX = (GAME_W - gridW) / 2 + cellSize / 2;
+  const startY = 110;
+  const portraitSizeInner = cellSize * 0.83;
+  const currentKey = scene.userProfileKey || 'portrait_01';
+
+  for (let i = 1; i <= 43; i++) {
+    const key = 'portrait_' + String(i).padStart(2, '0');
+    const col = (i - 1) % cols;
+    const row = Math.floor((i - 1) / cols);
+    const cx = startX + col * (cellSize + gap);
+    const cy = startY + row * (cellSize + gap);
+
+    // 프레임 자산
+    const frameImg = scene.add.image(cx, cy, 'profile_frame')
+      .setDisplaySize(cellSize, cellSize).setDepth(201);
+    // portrait
+    const portraitImg = scene.add.image(cx, cy, key)
+      .setDisplaySize(portraitSizeInner, portraitSizeInner).setDepth(202);
+
+    // 현재 선택 강조 — 옅은 시안 외곽선, 미세하게 숨쉬는 alpha
+    let highlight = null;
+    if (key === currentKey) {
+      highlight = scene.add.rectangle(cx, cy, cellSize + 6, cellSize + 6)
+        .setStrokeStyle(3, 0x9FE6FF).setDepth(203);
+      scene.tweens.add({
+        targets: highlight, alpha: 0.55,
+        duration: 1400, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+      });
+      els.push(highlight);
+    }
+
+    // hit zone (셀 전체 클릭)
+    const hit = scene.add.rectangle(cx, cy, cellSize, cellSize, 0x000000, 0)
+      .setDepth(204).setInteractive({ useHandCursor: true });
+    hit.on('pointerover', () => { if (key !== currentKey) frameImg.setTint(0x6A7AA8); });
+    hit.on('pointerout',  () => { if (key !== currentKey) frameImg.clearTint(); });
+    hit.on('pointerup', () => {
+      scene.userProfileKey = key;
+      // HUD 프로필 아이콘 즉시 동기화 — setTexture가 displaySize를 reset하므로 다시 호출
+      if (scene.uiAvatarSprite && scene.uiAvatarSprite.setTexture) {
+        scene.uiAvatarSprite.setTexture(key);
+        const _avSize = 77 * 0.83; // HUD avatarSize * portraitInner ratio
+        scene.uiAvatarSprite.setDisplaySize(_avSize, _avSize);
+      }
+      try { saveGame(scene); } catch (e) {}
+      closePortraitPicker(scene);
+      closeProfileModal(scene);
+      openProfileModal(scene);
+    });
+
+    els.push(frameImg, portraitImg, hit);
+  }
+
+  scene.portraitPicker = { els };
+}
+
+function closePortraitPicker(scene) {
+  const p = scene.portraitPicker;
+  if (!p) return;
+  p.els.forEach((e) => e && e.destroy && e.destroy());
+  scene.portraitPicker = null;
+}
+
+// === 닉네임 변경 모달 — K-354 BG + HTML input (Layer Lab "Input your name" 스타일) ===
+function openNicknameEdit(scene) {
+  if (scene.nicknameEdit) return;
+  const els = [];
+
+  // dim — 풀스크린
+  const dim = scene.add.rectangle(GAME_W / 2, GAME_H / 2, GAME_W, GAME_H, 0x000000, 0.65)
+    .setDepth(220).setInteractive();
+  els.push(dim);
+
+  // 모달 BG (K-354)
+  const modalW = 360, modalH = 300;
+  const modalCX = GAME_W / 2, modalCY = GAME_H / 2;
+  const bg = scene.add.image(modalCX, modalCY, 'nickname_modal_bg')
+    .setDisplaySize(modalW, modalH).setDepth(221);
+  els.push(bg);
+
+  // 모든 텍스트 그림자 헬퍼
+  const addShadow = (t) => t.setShadow(0, 2, '#000000', 2, true, true);
+
+  // 헤더 "이름 입력" — 살짝 위로
+  const headerY = modalCY - modalH / 2 + 22;
+  const headerTxt = scene.add.text(modalCX, headerY, '이름 입력', {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '20px',
+    color: '#FFFFFF',
+  }).setOrigin(0.5).setDepth(222);
+  addShadow(headerTxt);
+  els.push(headerTxt);
+
+  // 입력 박스 BG (K-364 자산)
+  const inputBoxW = 280, inputBoxH = 48;
+  const inputBoxY = modalCY - 30;
+  const inputBox = scene.add.image(modalCX, inputBoxY, 'input_box_bg')
+    .setDisplaySize(inputBoxW, inputBoxH).setDepth(221);
+  els.push(inputBox);
+
+  // HTML input — 박스 자산 위에 transparent로 띄움
+  const canvas = scene.game.canvas;
+  const canvasRect = canvas.getBoundingClientRect();
+  const screenX = canvasRect.left + (modalCX * canvasRect.width / GAME_W);
+  const screenY = canvasRect.top + (inputBoxY * canvasRect.height / GAME_H);
+  const inputEl = document.createElement('input');
+  inputEl.type = 'text';
+  inputEl.maxLength = 16;
+  inputEl.value = castleNickname || '';
+  Object.assign(inputEl.style, {
+    position: 'fixed',
+    left: screenX + 'px', top: screenY + 'px',
+    transform: 'translate(-50%, -50%)',
+    width: (inputBoxW * canvasRect.width / GAME_W - 30) + 'px',
+    height: (inputBoxH * canvasRect.height / GAME_H - 12) + 'px',
+    fontSize: '18px', fontWeight: 'bold',
+    textAlign: 'center', color: '#2A6BC8',
+    background: 'transparent',
+    border: 'none', outline: 'none',
+    padding: '0', margin: '0',
+    fontFamily: 'BMJUA, sans-serif',
+    zIndex: '2000',
+  });
+  document.body.appendChild(inputEl);
+  setTimeout(() => { try { inputEl.focus(); inputEl.select(); } catch (e) {} }, 50);
+
+  // 안내 텍스트 — 컬러 진하게 (옅은 회색 BG에서 가독성)
+  const guideY = modalCY + 8;
+  const guideTxt = scene.add.text(modalCX, guideY, '언제든지 이름을 변경할 수 있어요', {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '12px', color: '#1B3258',
+  }).setOrigin(0.5).setDepth(222);
+  addShadow(guideTxt);
+  els.push(guideTxt);
+
+  // 확인 함수
+  const confirm = () => {
+    const v = (inputEl.value || '').trim();
+    if (v.length > 0 && v.length <= 16) {
+      castleNickname = v;
+      if (scene.uiCastleNameTop) scene.uiCastleNameTop.setText(castleNickname);
+      try { saveGame(scene); } catch (e) {}
+      // 튜토리얼 step4 hook
+      if (scene._onNicknameChangedTutorial) {
+        const cb = scene._onNicknameChangedTutorial;
+        scene._onNicknameChangedTutorial = null;
+        try { cb(); } catch (e) {}
+      }
+      closeNicknameEdit(scene);
+      closeProfileModal(scene);
+      openProfileModal(scene);
+    } else {
+      closeNicknameEdit(scene);
+    }
+  };
+  inputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') confirm();
+    if (e.key === 'Escape') closeNicknameEdit(scene);
+  });
+
+  // 버튼 helper — 자산 이미지 + 텍스트 + hit zone + 클릭 반응
+  const btnW = 110, btnH = 50, btnY = modalCY + 80;
+  const makeBtn = (btnX, assetKey, label, onClick, strokeColor) => {
+    const img = scene.add.image(btnX, btnY, assetKey)
+      .setDisplaySize(btnW, btnH).setDepth(222);
+    // 텍스트는 버튼 자산의 시각 중심(글로시 영역 위)에 맞춰 살짝 위로
+    const txt = scene.add.text(btnX, btnY - 3, label, {
+      fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '20px',
+      color: '#FFFFFF', stroke: strokeColor || '#1A1A1A', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(223);
+    addShadow(txt);
+    const hit = scene.add.rectangle(btnX, btnY, btnW + 14, btnH + 14, 0x000000, 0)
+      .setDepth(224).setInteractive({ useHandCursor: true });
+    hit.on('pointerdown', () => { img.setScale(img.scaleX * 0.92, img.scaleY * 0.92); txt.setScale(0.92); });
+    hit.on('pointerout',  () => { img.setDisplaySize(btnW, btnH); txt.setScale(1); });
+    hit.on('pointerup',   () => { img.setDisplaySize(btnW, btnH); txt.setScale(1); onClick(); });
+    els.push(img, txt, hit);
+  };
+  // 확인 (파란) — 왼쪽, 어두운 파랑 stroke
+  makeBtn(modalCX - 62, 'btn_blue', '확인', confirm, '#143E78');
+  // 취소 (빨강) — 오른쪽, 어두운 빨강 stroke
+  makeBtn(modalCX + 62, 'btn_red', '취소', () => closeNicknameEdit(scene), '#7A1818');
+
+  scene.nicknameEdit = { els, inputEl };
+}
+
+function closeNicknameEdit(scene) {
+  const p = scene.nicknameEdit;
+  if (!p) return;
+  if (p.inputEl && p.inputEl.parentNode) {
+    try { p.inputEl.parentNode.removeChild(p.inputEl); } catch (e) {}
+  }
+  p.els.forEach((e) => e && e.destroy && e.destroy());
+  scene.nicknameEdit = null;
+}
+
 function updateTavernButton(scene) {
-  // 무료 소환 가능 시 wobble + 말풍선. 풀이면 멈춤.
-  refillTavernStock();
-  const canFree = tavernFreeStock > 0;
+  // 무료 소환 '실제로' 가능할 때만 wobble + 말풍선. stock 남아도 5분 쿨다운 중이면 멈춤.
+  const canFree = isTavernFreeReady();
   const icon = scene.uiTavernBg;
   if (!icon) return;
   if (canFree && !scene._tavernWobbleTween) {
@@ -3604,7 +5932,11 @@ function updateHeroChatter(scene, time) {
     return;
   }
   const hero = Phaser.Utils.Array.GetRandom(candidates);
-  const line = Phaser.Utils.Array.GetRandom(HERO_CHATTER_LINES);
+  // 영웅별 quotes 정의 시 우선 사용 — 캐릭터 컨셉 살린 대사. 없으면 generic 폴백
+  const pool = (hero.heroDef && hero.heroDef.quotes && hero.heroDef.quotes.length)
+    ? hero.heroDef.quotes
+    : HERO_CHATTER_LINES;
+  const line = Phaser.Utils.Array.GetRandom(pool);
   const bubble = drawSpeechBubble(scene, hero.x, hero.y - HERO_CHATTER_TIP_OFFSET_Y, line, 8);
   scene.activeChatter = { bubble, hero, expiresAt: time + HERO_CHATTER_DURATION_MS };
   scene.heroChatterNextAt = time + HERO_CHATTER_DURATION_MS + Phaser.Math.Between(HERO_CHATTER_MIN_GAP_MS, HERO_CHATTER_MAX_GAP_MS);
@@ -3618,6 +5950,7 @@ function flashInsufficientGems(scene) {
 
 // 성 레벨에 따라 오픈된 슬롯 수 (8칸 기준, +1씩 5단계)
 function getUnlockedSlotCount(level) {
+  if (cheatAllSlotsUnlocked) return 8;
   if (level >= 25) return 8;
   if (level >= 20) return 7;
   if (level >= 15) return 6;
@@ -3625,6 +5958,7 @@ function getUnlockedSlotCount(level) {
   if (level >= 5)  return 4;
   return 3;
 }
+let cheatAllSlotsUnlocked = false;
 
 // 슬롯 인덱스가 해금되는 성 레벨 (잠금 토스트용)
 function getSlotUnlockLevel(index) {
@@ -4647,6 +6981,7 @@ function spendClassTrain(scene, classId) {
   const cost = classTrainCost(lvl);
   if (gold < cost) { flashInsufficientGold(scene); return; }
   gold -= cost;
+  totalGoldSpent += cost;
   classTrainLevels[classId] = lvl + 1;
   updateGoldUI(scene);
   refreshAllHeroStats(scene);
@@ -5256,10 +7591,11 @@ function makeInventoryCardContainer(scene, entry, cx, cy, w, h, opts) {
     .setDisplaySize(chipR * 1.4, chipR * 1.4);
 
   // 포트레이트 — 큰 사이즈 유지. 카드 영역 밖은 GeometryMask로 자름
+  // 인벤토리 큰 영웅 카드 → lobby_xxx PNG (portraitBig) 사용
   const portraitY = glowCy + 4;
-  const portraitScale = def.drawBody ? 2.8 : 7.2;
+  const portraitScale = def.drawBody ? 2.8 : 1.6; // portraitBig 사용 시 자체 베이스 96이라 scale 줄임
   const portrait = scene.add.container(0, portraitY).setScale(portraitScale);
-  drawHeroPortraitStatic(scene, def, portrait);
+  drawHeroPortraitStatic(scene, def, portrait, { useBig: true });
   const portraitMaskGfx = scene.make.graphics({ x: 0, y: 0, add: false });
   portraitMaskGfx.fillStyle(0xffffff, 1);
   portraitMaskGfx.fillRoundedRect(cx + innerLeft, cy + innerTop, innerW, innerH, R_INNER);
@@ -5385,7 +7721,7 @@ function makeInventoryCardContainer(scene, entry, cx, cy, w, h, opts) {
         const cy0 = scene.heroHudContainer.y;
         scene.heroSlots.forEach((slot) => {
           if (!slot.bg || !slot.bg.input || !slot.bg.input.enabled) return;
-          if (slot.isLocked || slot.occupied) return;
+          if (slot.isLocked) return;
           const sx = cx0 + slot.x;
           const sy = cy0 + slot.y;
           const dx = pointer.worldX - sx;
@@ -5744,12 +8080,11 @@ function openHeroDetailPanel(scene, heroId) {
   const whiteW = w - 8;
 
   // 5단계: 능력치 7개 (2/2/2/1 4행) — 라벨(chip 위) + chip + 숫자
-  const rMult = RARITY_MULT[def.rarity];
-  const eRate = ENHANCE_RATE[def.rarity] || 0.005;
-  const eMult = 1 + enhanceVal * eRate;
-  const hp = Math.floor(cls.baseStats.maxHp * rMult * eMult);
-  const dmg = Math.floor(cls.baseStats.damage * rMult * eMult);
-  const defVal = Math.floor((cls.baseStats.defense || 0) * rMult * eMult);
+  // 실제 전투 스탯과 동일 공식 (강화 flat + 훈련% + 인구) — applyHeroStats와 일치.
+  const s = computeHeroStatValues(def, enhanceVal);
+  const hp = s.maxHp;
+  const dmg = s.damage;
+  const defVal = s.defense;
   const atkSpd = (1000 / cls.baseStats.attackInterval).toFixed(1);
   const atkRng = cls.baseStats.attackRange;
   const movSpd = cls.baseStats.speed;
@@ -6342,8 +8677,9 @@ function openTavern(scene) {
   const infoIcon = scene.add.image(infoIconX, infoY, 'ui_icon_timer')
     .setDisplaySize(infoIconSize, infoIconSize).setDepth(104);
   // 텍스트 (시간) — pill 우측 영역 가운데
-  const infoTextX = (infoIconX + infoIconSize / 2 + (popupCX + pillW / 2)) / 2;
-  const infoText = scene.add.text(infoTextX, infoY, '', {
+  const infoTextXClock = (infoIconX + infoIconSize / 2 + (popupCX + pillW / 2)) / 2; // 시계 보일 때(쿨다운)
+  const infoTextXCenter = popupCX;                                                    // 시계 없을 때(무료 가능) — pill 중앙
+  const infoText = scene.add.text(infoTextXClock, infoY, '', {
     fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '11px',
     color: '#FFE08A', stroke: '#000', strokeThickness: 2.5,
   }).setOrigin(0.5).setDepth(104);
@@ -6363,7 +8699,7 @@ function openTavern(scene) {
   }).setOrigin(0, 0.5).setDepth(104);
   scene.tavernSummonBtn = {
     bg: summonBtn, label: summonLabel, gem: summonGem, cost: summonCost,
-    info: infoText, infoPill: infoPillBg, infoIcon: infoIcon,
+    info: infoText, infoPill: infoPillBg, infoIcon: infoIcon, infoTextXClock, infoTextXCenter,
   };
   refreshTavernSummonBtn(scene);
   summonBtn.on('pointerup', () => summonTavernHeroes(scene));
@@ -6446,11 +8782,13 @@ function refreshTavernSummonBtn(scene) {
       b.infoIcon && b.infoIcon.setVisible(true);
       const remainMs = Math.max(0, tavernNextRefillAt - Date.now());
       b.info.setText(`${tavernFreeStock}/${TAVERN_FREE_MAX} · ${formatMmSs(remainMs)}`);
+      b.info.x = b.infoTextXClock; // 시계 옆 우측 영역
     } else {
-      // 무료 가능 (쿨다운 끝)
+      // 무료 가능 (쿨다운 끝) — 시계 없으니 pill 중앙 정렬
       b.infoPill && b.infoPill.setVisible(true);
       b.infoIcon && b.infoIcon.setVisible(false);
       b.info.setText(`무료 ${tavernFreeStock}/${TAVERN_FREE_MAX}`);
+      b.info.x = b.infoTextXCenter;
     }
   }
 }
@@ -6460,6 +8798,279 @@ function formatMmSs(ms) {
   const mm = Math.floor(totalSec / 60);
   const ss = totalSec % 60;
   return `${mm}:${String(ss).padStart(2, '0')}`;
+}
+
+// === 가이드 미션 진행 판정 ====================================================
+// 미션 타입별 현재 진행 값. 전부 기존 게임 상태에서 즉시 산출 (별도 추적 불필요).
+function guideMissionCurrent(scene, m) {
+  switch (m.type) {
+    case 'kills':  return kills;
+    case 'stage':  return Math.max(0, stage - 1); // 클리어한 스테이지 수 (현재 stage 진행 중 = stage-1까지 클리어)
+    case 'summon': return totalSummons;
+    case 'castle': return castleLevel;
+    case 'train':  return Math.max(0, ...Object.values(classTrainLevels || {}));
+    case 'heroLevel': {                // 아무 영웅의 최고 레벨(=enhance)
+      const inv = (scene && scene.heroInventory) || {};
+      let mx = 0;
+      Object.keys(inv).forEach((k) => { mx = Math.max(mx, clampEnhance(inv[k].enhance)); });
+      return mx;
+    }
+    case 'nickname': {                 // 임시 닉네임(기사_/디폴트) → 사용자 변경 시 1
+      const n = castleNickname || '';
+      if (!n || n === CASTLE_DEFAULT_NAME) return 0;
+      if (/^기사_\d+$/.test(n)) return 0; // 자동 생성 닉네임은 미변경으로 간주
+      return 1;
+    }
+    case 'deploy': {                   // 슬롯에 배치된 영웅 수 (1 이상이면 달성)
+      const inv = (scene && scene.heroInventory) || {};
+      let cnt = 0;
+      Object.keys(inv).forEach((k) => { if (inv[k].deployedSlot !== null && inv[k].deployedSlot !== undefined) cnt++; });
+      return cnt;
+    }
+    default: return 0;
+  }
+}
+
+// 현재 진행 중인 가이드 미션 객체 — 전부 완료했으면 null.
+function currentGuideMission() {
+  return guideStep < GUIDE_MISSIONS.length ? GUIDE_MISSIONS[guideStep] : null;
+}
+
+// 미션 타입 → 유저향 카테고리 라벨 (타이틀 [ ] 표기용). 게임 탭 분류와 일관.
+function guideMissionCategory(m) {
+  switch (m.type) {
+    case 'kills':     return '전투';
+    case 'stage':     return '진행';
+    case 'summon':    return '영웅';
+    case 'heroLevel': return '영웅';
+    case 'castle':    return '내정';
+    case 'train':     return '훈련';
+    case 'nickname':  return '가이드';
+    case 'deploy':    return '영웅';
+    default:          return '';
+  }
+}
+
+// 현재 미션의 보상을 받을 수 있는가? (조건 충족 + 아직 미수령 상태)
+function isGuideRewardReady(scene) {
+  const m = currentGuideMission();
+  if (!m) return false;
+  return guideMissionCurrent(scene, m) >= m.target;
+}
+
+// 보상 텍스트 (위젯/패널 공용)
+function guideRewardLabel(reward) {
+  if (reward.gems) return `보석 ${reward.gems}`;
+  if (reward.gold) return `골드 ${reward.gold}`;
+  return '';
+}
+
+// 미션 완료 보상 수령 — 위젯 클릭 시 발동. 연출 후 보상 지급 + 다음 미션으로.
+function playGuideClaim(scene) {
+  const gw = scene.guideWidget;
+  const m = currentGuideMission();
+  if (!gw || !m || gw._claiming) return;
+  gw._claiming = true;
+  stopGuideReadyPulse(gw);     // 대기 펄스 정지 (수령 연출로 전환)
+  gw.dot.setVisible(false);
+
+  // 1) BG 초록 플래시
+  gw.bg.setTint(0x2E7D52);
+  scene.time.delayedCall(200, () => gw.bg && gw.bg.setTint(0x0A1A36));
+  // 2) 보상 슬롯 + 아이콘 펄스 (수령 강조)
+  [gw.rewardSlot, gw.rewardIcon].forEach((o) => {
+    if (!o) return;
+    scene.tweens.add({
+      targets: o, scaleX: o.scaleX * 1.3, scaleY: o.scaleY * 1.3,
+      duration: 150, yoyo: true, ease: 'Quad.easeOut',
+    });
+  });
+  // 3) "미션 완료!" 팝업 (위젯 위로 떠오르며 페이드)
+  const done = scene.add.text(gw.cx, gw.y - 2, '미션 완료!', {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '16px',
+    color: '#4ADE80', stroke: '#04200F', strokeThickness: 4,
+  }).setOrigin(0.5, 1).setDepth(60);
+  scene.tweens.add({
+    targets: done, y: gw.y - 24, alpha: 0, duration: 900, ease: 'Quad.easeOut',
+    onComplete: () => done.destroy(),
+  });
+  // 4) 보상 아이콘이 보상 슬롯에서 HUD 재화 카운터로 빨려감 (보스 결과와 동일 연출)
+  const sx = gw.rewardIcon.x, sy = gw.rewardIcon.y;
+  if (m.reward.gold) flyRewardToHud(scene, sx, sy, 'ui_rb_icon_coin', scene.uiGold, 8, 0);
+  if (m.reward.gems) flyRewardToHud(scene, sx, sy, 'ui_rb_icon_gem', scene.uiGems, 8, 0);
+
+  // 5) 보상 지급 후 부드러운 미션 전환 — 현재 내용 페이드아웃 → 다음 미션 페이드인 + 통통 등장
+  scene.time.delayedCall(760, () => {
+    if (m.reward.gold) { gold += m.reward.gold; updateGoldUI(scene); }
+    if (m.reward.gems) { gems += m.reward.gems; updateGemsUI(scene); }
+    guideStep += 1;
+    saveGame(scene);
+    const content = [gw.trophy, gw.title, gw.descText, gw.progBg, gw.progFill,
+      gw.progText, gw.rewardSlot, gw.rewardIcon, gw.rewardText];
+    scene.tweens.add({
+      targets: content, alpha: 0, duration: 160, ease: 'Quad.easeIn',
+      onComplete: () => {
+        gw._claiming = false;
+        content.forEach((o) => o && o.setAlpha(1)); // alpha 원복 (표시는 refresh가 제어)
+        refreshGuideWidget(scene);                  // 다음 미션 갱신 (전부 완료면 숨김)
+        if (currentGuideMission() && bossPhase !== 'boss-fight') {
+          // 다음 미션 등장 — 페이드인 + 설명 통통
+          content.forEach((o) => o && o.setAlpha(0));
+          scene.tweens.add({ targets: content, alpha: 1, duration: 280, ease: 'Quad.easeOut' });
+          scene.tweens.add({
+            targets: gw.descText, scaleX: 1.12, scaleY: 1.12,
+            duration: 200, yoyo: true, ease: 'Quad.easeOut',
+          });
+        }
+      },
+    });
+  });
+}
+
+// === 가이드 미션 메인 위젯 (전장 좌상단) =====================================
+// 좌측 트로피 아이콘 + 미션/진행바 + 우측 보상 아이콘. 완료 시 자동 수령(연출).
+function buildGuideWidget(scene) {
+  const w = 290, h = 72;
+  const x = (GAME_W - w) / 2;                   // 가로 중앙 (세븐나이츠처럼)
+  const y = GAME_H - BOTTOM_UI_HEIGHT - h - 27; // 하단 UI 위 + 0.5cm(~19px) 더 올림 (캐릭터 영역 겹침 회피)
+  const cx = x + w / 2, cy = y + h / 2;
+
+  const bg = scene.add.nineslice(cx, cy, 'ui_rb_bg', null, w, h, 7, 7, 7, 7)
+    .setDepth(48).setTint(0x0A1A36).setAlpha(0.5);
+
+  const tx = x + 12; // 텍스트/진행바 좌단
+  // 트로피 — 위젯 좌상단에 크게, 박스를 살짝 벗어나게 돌출 (엠블럼 느낌). 크게 그릴수록 자글거림도 완화.
+  const trophy = scene.add.image(x + 18, y + 10, 'ui_icon_trophy')
+    .setDisplaySize(44, 28).setDepth(49);
+  const title = scene.add.text(x + 44, y + 15, '', {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '11px',
+    color: '#FFD577', stroke: '#1F0410', strokeThickness: 3,
+  }).setOrigin(0, 0.5).setDepth(49);
+  const descText = scene.add.text(tx, y + 37, '', {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '15px',
+    color: '#FFFFFF', stroke: '#000000', strokeThickness: 3,
+  }).setOrigin(0, 0.5).setDepth(49);
+
+  // 진행바 (graphics)
+  const barX = tx, barY = y + 59, barW = 178, barH = 9;
+  const progBg = scene.add.graphics().setDepth(49);
+  const progFill = scene.add.graphics().setDepth(49);
+  const progText = scene.add.text(barX + barW + 6, barY, '', {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '12px',
+    color: '#FFFFFF', stroke: '#000000', strokeThickness: 2.5,
+  }).setOrigin(0, 0.5).setDepth(49);
+
+  // 우측 보상 — 보상 슬롯 규약 (슬롯 BG + 아이콘 정중앙 + 수량 우하단). 단일 재화.
+  const slotSize = 46;
+  const rsCX = x + w - 30, rsCY = cy;
+  const rewardSlot = scene.add.image(rsCX, rsCY, 'ui_reward_slot_gem')
+    .setDisplaySize(slotSize, slotSize).setDepth(49);
+  const rewardIcon = scene.add.image(rsCX, rsCY, 'ui_rb_icon_gem')
+    .setDisplaySize(slotSize * 0.74, slotSize * 0.74).setDepth(50);
+  const rewardText = scene.add.text(rsCX + slotSize / 2 - 4, rsCY + slotSize / 2 - 4, '', {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '12px',
+    color: '#FFFFFF', stroke: '#000000', strokeThickness: 3,
+    shadow: { offsetX: 0, offsetY: 1, color: '#000', blur: 2, fill: true },
+  }).setOrigin(1, 1).setDepth(51);
+
+  // 레드닷 — 완료(수령 가능) 알림, 우상단 모서리
+  const dot = scene.add.image(x + w - 7, y + 7, 'ui_red_dot')
+    .setDisplaySize(15, 15).setDepth(52);
+
+  // 위젯 전체 탭 → 보상 수령 (완료 시에만 입력 활성). pointerup으로 뒤 클릭 새는 것 방지.
+  const zone = scene.add.zone(cx, cy, w, h).setInteractive({ useHandCursor: true }).setDepth(51);
+  zone.on('pointerup', () => {
+    if (isGuideRewardReady(scene)) playGuideClaim(scene);
+  });
+
+  scene.guideWidget = {
+    bg, trophy, title, descText, progBg, progFill, progText,
+    rewardSlot, rewardIcon, rewardText, dot, zone,
+    x, y, w, h, cx, cy, barX, barY, barW, barH,
+    trophyBaseS: [trophy.scaleX, trophy.scaleY],
+    slotBaseS: [rewardSlot.scaleX, rewardSlot.scaleY, rewardIcon.scaleX, rewardIcon.scaleY],
+    slotSize,
+    _claiming: false, _readyFx: null,
+  };
+  refreshGuideWidget(scene);
+}
+
+function refreshGuideWidget(scene) {
+  const gw = scene.guideWidget;
+  if (!gw || gw._claiming) return; // 수령 연출 중엔 갱신 보류
+  const m = currentGuideMission();
+  const visible = !!m && bossPhase !== 'boss-fight'; // 전부 완료 or 보스전이면 숨김
+  const els = [gw.bg, gw.trophy, gw.title, gw.descText, gw.progBg, gw.progFill,
+    gw.progText, gw.rewardSlot, gw.rewardIcon, gw.rewardText, gw.zone];
+  els.forEach((o) => o && o.setVisible(visible));
+  if (!visible) {
+    gw.dot.setVisible(false);
+    if (gw.zone && gw.zone.input) gw.zone.input.enabled = false;
+    stopGuideReadyPulse(gw);
+    return;
+  }
+
+  const cat = guideMissionCategory(m);
+  gw.title.setText(`가이드 미션 ${guideStep + 1}${cat ? ` [${cat}]` : ''}`);
+  gw.descText.setText(m.desc);
+  // 보상 표시 — 보상 슬롯 규약(골드=흰 슬롯, 보석=보라 슬롯) + 아이콘 + 수량
+  const isGem = !!m.reward.gems;
+  // setTexture는 scale 유지 → 텍스처 원본 크기가 다르면 찌그러짐. 교체 후 displaySize 재설정.
+  gw.rewardSlot.setTexture(isGem ? 'ui_reward_slot_gem' : 'ui_reward_slot_gold')
+    .setDisplaySize(gw.slotSize, gw.slotSize);
+  gw.rewardIcon.setTexture(isGem ? 'ui_rb_icon_gem' : 'ui_rb_icon_coin')
+    .setDisplaySize(gw.slotSize * 0.74, gw.slotSize * 0.74);
+  gw.rewardText.setText(`${isGem ? m.reward.gems : m.reward.gold}`);
+
+  const cur = Math.min(guideMissionCurrent(scene, m), m.target);
+  const ready = cur >= m.target;
+
+  // 진행바
+  gw.progBg.clear();
+  gw.progFill.clear();
+  gw.progBg.fillStyle(0x1A2A50, 1).fillRoundedRect(gw.barX, gw.barY - gw.barH / 2, gw.barW, gw.barH, 3);
+  const pct = m.target > 0 ? Math.min(1, cur / m.target) : 0;
+  const fillW = gw.barW * pct;
+  if (fillW > 0) {
+    // 진행도 0이면 아무것도 안 그림. 너비가 작을 땐 radius를 너비에 맞춰 줄여 깨짐 방지.
+    const r = Math.min(gw.barH / 2, fillW / 2);
+    gw.progFill.fillStyle(ready ? 0x4ADE80 : 0xFFD577, 1)
+      .fillRoundedRect(gw.barX, gw.barY - gw.barH / 2, fillW, gw.barH, r);
+  }
+  gw.progText.setText(`${cur}/${m.target}`);
+
+  // 완료(수령 가능) — 텍스트 없이 연출로 어필: 레드닷 + 트로피 펄스. 클릭해야 수령됨.
+  gw.dot.setVisible(ready);
+  if (gw.zone && gw.zone.input) gw.zone.input.enabled = ready;
+  if (ready) startGuideReadyPulse(scene, gw);
+  else stopGuideReadyPulse(gw);
+}
+
+// 수령 가능 상태 어필 — 동적 연출: BG 빛남 + 트로피/보상 슬롯 통통 + 보상 슬롯 radar 링 (클릭 유도)
+function startGuideReadyPulse(scene, gw) {
+  if (gw._readyFx) return; // 이미 진행 중
+  const fx = { tweens: [], objs: [] };
+  const [tbx, tby] = gw.trophyBaseS;
+  // BG 은은하게 빛남
+  fx.tweens.push(scene.tweens.add({
+    targets: gw.bg, alpha: 0.85, duration: 480, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+  }));
+  // 트로피 통통 (대기 어필 — 보상 슬롯/아이콘은 정적 유지)
+  fx.tweens.push(scene.tweens.add({
+    targets: gw.trophy, scaleX: tbx * 1.18, scaleY: tby * 1.18,
+    duration: 340, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+  }));
+  gw._readyFx = fx;
+}
+
+function stopGuideReadyPulse(gw) {
+  if (!gw._readyFx) return;
+  gw._readyFx.tweens.forEach((t) => t && t.stop());
+  gw._readyFx.objs.forEach((o) => o && o.destroy());
+  gw._readyFx = null;
+  // 펄스로 바뀐 alpha/scale 원복
+  if (gw.bg) gw.bg.setAlpha(0.5);
+  if (gw.trophy) gw.trophy.setScale(gw.trophyBaseS[0], gw.trophyBaseS[1]);
 }
 
 function summonTavernHeroes(scene) {
@@ -6477,11 +9088,13 @@ function summonTavernHeroes(scene) {
   } else {
     if (gems < GACHA_COST) { flashInsufficientGems(scene); return; }
     gems -= GACHA_COST;
+    totalGemsSpent += GACHA_COST;
     updateGemsUI(scene);
-    updateTavernButton(scene);
   }
+  totalSummons += 1; // 가이드 미션 'summon' 판정용 누적 카운터 (무료/유료 공통)
   saveGame(scene);
   refreshTavernSummonBtn(scene);
+  updateTavernButton(scene); // 무료 stock/쿨다운 변화 → 필드 버튼 wobble·말풍선 즉시 갱신
   // 이전 reveal된 카드 정리 + 뒷면 다시 표시
   scene.tavernCardSlots.forEach((slot) => {
     slot.transient.forEach((el) => el && el.destroy && el.destroy());
@@ -6651,6 +9264,12 @@ function pickFromTavern(scene, def, slot) {
   // 주점은 닫지 않고 유지 — banner가 위에 떠 있음
   showHeroAcquiredBanner(scene, def, isDup, enhanceAfter);
   saveGame(scene);
+  // 튜토리얼 step2 hook — 영웅 소환 완료 시 자동 진행
+  if (scene._onHeroAcquiredTutorial) {
+    const cb = scene._onHeroAcquiredTutorial;
+    scene._onHeroAcquiredTutorial = null;
+    try { cb(); } catch (e) {}
+  }
 }
 
 // 특정 slot의 카드만 뒷면으로 복귀 + 남은 다른 카드의 선택 버튼을 광고 보기 버튼으로 교체
@@ -6830,6 +9449,7 @@ function showHeroAcquiredBanner(scene, def, isDup, enhanceLevel) {
   const slotBg = scene.add.image(cx, slotCY, slotBgKey)
     .setDisplaySize(slotSize, slotSize).setDepth(1003).setAlpha(0);
   // 영웅 sprite anim — idle → attack → walk → skill 순서 loop. 각 anim frame size에 맞춰 scale 조정.
+  // (소환 결과 작은 네모 슬롯은 sprite anim 유지 — 사용자가 명시적으로 유지 요청)
   let slotPortrait;
   if (def.animKeys && def.portraitSheet) {
     slotPortrait = scene.add.sprite(cx, slotCY, def.portraitSheet, def.portraitSheetFrame || 0)
@@ -6999,34 +9619,75 @@ function showRosterFullMessage(scene) {
 
 function triggerGameOver(scene) {
   if (isGameOver) return;
+  // 다른 UI 컨텐츠가 열려있으면 성 함락 팝업 표시 안 함 (백그라운드로 게임 계속).
+  // 모달 닫힌 후 다음 프레임에서 castleHP <= 0이면 다시 이 함수 호출됨.
+  if (scene.profileModal || scene.stageRewardPanel || scene.portraitPicker ||
+      scene.nicknameEdit || scene.tavernHeroAcqLive) {
+    return;
+  }
   isGameOver = true;
   if (scene.spawnTimer) scene.spawnTimer.remove();
 
   autoBossSummon = false;
   saveGame(scene);
 
-  const overlay = scene.add.rectangle(CENTER.x, CENTER.y, GAME_W, GAME_H, 0x000000, 0)
-    .setDepth(80);
-  scene.tweens.add({ targets: overlay, fillAlpha: 0.55, duration: 400 });
+  // 반투명 검정 오버레이 (더 어둡게)
+  const overlay = scene.add.rectangle(CENTER.x, CENTER.y, GAME_W, GAME_H, 0x000000, 0).setDepth(80);
+  scene.tweens.add({ targets: overlay, fillAlpha: 0.75, duration: 350 });
 
-  const title = scene.add.text(CENTER.x, CENTER.y - 30, '성이 함락됐다!', {
-    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '36px',
-    color: '#FF6666', stroke: '#1F1208', strokeThickness: 6, align: 'center',
-  }).setOrigin(0.5).setDepth(81).setAlpha(0).setScale(0.6);
-  const sub = scene.add.text(CENTER.x, CENTER.y + 20, `STAGE ${stage} 재시도...`, {
-    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '18px',
-    color: '#F5E8C0', stroke: '#000', strokeThickness: 3,
-  }).setOrigin(0.5).setDepth(81).setAlpha(0);
+  // 해골 배지 — 작게 시작 → 팝 + 페이드인
+  const badge = scene.add.image(CENTER.x, CENTER.y - 85, 'ui_badge_defeat').setDepth(81);
+  const bH = 150, bW = bH * (562 / 329); // 패배 배지 실제 비율
+  badge.setDisplaySize(bW, bH);
+  const fsx = badge.scaleX, fsy = badge.scaleY;
+  badge.setScale(fsx * 0.4, fsy * 0.4).setAlpha(0);
+  scene.tweens.add({ targets: badge, scaleX: fsx, scaleY: fsy, alpha: 1, duration: 450, ease: 'Back.easeOut' });
 
-  scene.tweens.add({
-    targets: title, alpha: 1, scale: 1, duration: 350, ease: 'Back.easeOut',
+  // DEFEAT 리본 + 텍스트 — 배지 아래 (showBossResultBanner와 동일 구조)
+  const ribbon = scene.add.image(CENTER.x, CENTER.y - 5, 'ui_ribbon_wide_red').setDepth(82).setAlpha(0);
+  const rH = 56, rW = rH * (659 / 136);
+  ribbon.setDisplaySize(rW, rH);
+  const rsx = ribbon.scaleX, rsy = ribbon.scaleY;
+  ribbon.setScale(rsx * 0.4, rsy * 0.4);
+  const defeatLabel = scene.add.text(CENTER.x, CENTER.y - 8, 'DEFEAT', {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '24px',
+    color: '#FFFFFF', stroke: '#000000', strokeThickness: 4,
+    shadow: { offsetX: 0, offsetY: 2, color: '#000', blur: 3, fill: true }, padding: { x: 6, y: 4 },
+  }).setOrigin(0.5).setDepth(83).setAlpha(0);
+  if (defeatLabel.setLetterSpacing) defeatLabel.setLetterSpacing(3);
+  scene.tweens.add({ targets: ribbon, scaleX: rsx, scaleY: rsy, alpha: 1, duration: 420, delay: 220, ease: 'Back.easeOut' });
+  scene.tweens.add({ targets: defeatLabel, alpha: 1, duration: 350, delay: 320 });
+
+  // 문구 — 한 글자씩 타이핑 → 끝나면 마지막 점이 . → .. → ... 로 흐름(반복)
+  const msgY = CENTER.y + 95;
+  const baseMsg = '성이 함락되었습니다';
+  const msg = scene.add.text(CENTER.x, msgY, '', {
+    fontFamily: 'BMJUA', fontStyle: 'bold', fontSize: '21px',
+    color: '#FFFFFF', stroke: '#1F0410', strokeThickness: 5, align: 'center',
+  }).setOrigin(0.5).setDepth(82);
+  scene.time.delayedCall(480, () => {
+    let i = 0;
+    scene.time.addEvent({
+      delay: 85, repeat: baseMsg.length - 1,
+      callback: () => { i++; msg.setText(baseMsg.slice(0, i)); },
+    });
+    // 타이핑 완료 후 점이 . → .. → ... 한 번만 흐름 (반복 X — 곧 인게임으로 전환됨)
+    scene.time.delayedCall(baseMsg.length * 85 + 120, () => {
+      let d = 0;
+      scene.time.addEvent({
+        delay: 360, repeat: 2,
+        callback: () => { d += 1; msg.setText(baseMsg + '.'.repeat(d)); },
+      });
+    });
   });
-  scene.tweens.add({
-    targets: sub, alpha: 1, duration: 350, delay: 200,
-  });
-  scene.cameras.main.shake(300, 0.012);
 
-  scene.time.delayedCall(1800, () => {
-    scene.scene.restart();
+  scene.cameras.main.shake(280, 0.01);
+
+  // 잠시 후 자동으로 팝업 페이드아웃 → 재시작
+  scene.time.delayedCall(2900, () => {
+    scene.tweens.add({
+      targets: [overlay, badge, ribbon, defeatLabel, msg], alpha: 0, duration: 400, ease: 'Quad.easeIn',
+      onComplete: () => scene.scene.restart(),
+    });
   });
 }
