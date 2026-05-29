@@ -28,6 +28,17 @@ const SAVE_KEY_LEGACY_V9 = 'projectk_save_v9';
 const SAVE_KEY_LEGACY_V10 = 'projectk_save_v10';
 const SAVE_KEY_LEGACY_V11 = 'projectk_save_v11';
 
+// URL 파라미터 ?reset=1 또는 ?fresh=1 이면 모든 세이브 초기화 (데모용)
+try {
+  const params = new URLSearchParams(location.search);
+  if (params.has('reset') || params.has('fresh')) {
+    [SAVE_KEY, SAVE_KEY_LEGACY_V11, 'projectk_save_v10', 'projectk_save_v9'].forEach((k) => {
+      try { localStorage.removeItem(k); } catch (e) {}
+    });
+    console.log('[ProjectK] save reset via URL param');
+  }
+} catch (e) {}
+
 // === Castle ===
 const CASTLE_MAX_HP = 500;
 const CASTLE_RADIUS = 60;
@@ -139,7 +150,7 @@ function buildGuideMissions() {
       rew:  (t) => ({ gems: Math.min(2000, 50 + t * 5) }) },
     { type: 'train',
       T: [1,2,3,4,5,6,8,10,12,14,17,20,25,30,40,55,75,100,135,180],
-      desc: (t) => '수련관 ' + t + '레벨 달성',
+      desc: (t) => '클래스 훈련 ' + t + '레벨 달성',
       rew:  (t) => ({ gems: Math.min(2000, 40 + t * 3) }) },
   ];
   const all = [];
