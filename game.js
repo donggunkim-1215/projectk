@@ -45,7 +45,7 @@ const CASTLE_RADIUS = 60;
 // 성 이미지 displaySize ≈ 130×130. 풀밭 base 포함한 시각 footprint와 비슷하게 콜리전 잡음.
 const CASTLE_COL_HALF_W = 55;
 const CASTLE_COL_HALF_H = 55;
-const MAX_ENEMIES_ON_SCREEN = 35;
+const MAX_ENEMIES_ON_SCREEN = 75;
 
 // === Hero deployment ===
 const HERO_SLOT_COUNT = 8;
@@ -211,12 +211,12 @@ const STAT_GOLD_PCT_PER_POINT = 0.005;     // 시장: 골드 획득량 +0.5%/인
 // === Stage / wave ===
 const STAGE_DIFFICULTY_PER = 0.1;
 const STAGE_TRANSITION_MS = 2500;
-const ENEMY_SPAWN_DELAY = 3000;
+const ENEMY_SPAWN_DELAY = 1400;
 // === 스테이지 1~100 밸런스 ===
 // 수량(스폰 간격): stage 1~SPAWN_MAX_STAGE에서 ENEMY_SPAWN_DELAY → SPAWN_DELAY_MIN으로 선형 감소.
 // 이후엔 SPAWN_DELAY_MIN 고정 (수량 max). 스탯/보상은 stageScale(1+(s-1)*0.1)에 비례해 계속 증가.
 const SPAWN_MAX_STAGE = 50;
-const SPAWN_DELAY_MIN = 1000;
+const SPAWN_DELAY_MIN = 400;
 function getStageSpawnDelay(s) {
   const t = Math.min(1, Math.max(0, (s - 1) / Math.max(1, SPAWN_MAX_STAGE - 1)));
   return Math.round(ENEMY_SPAWN_DELAY - (ENEMY_SPAWN_DELAY - SPAWN_DELAY_MIN) * t);
