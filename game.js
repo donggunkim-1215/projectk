@@ -373,7 +373,7 @@ const HEROES = {
     },
     portraitSheet: 'hero_mage_dark_idle', portraitSheetFrame: 0,
     portraitSheetSize: { w: 141, h: 209 }, portraitScale: 1,
-    portraitBig: 'lobby_mage_dark', portraitBigSize: { w: 1054, h: 1080 }, portraitBigScale: 0.65,
+    portraitBig: 'lobby_mage_dark', portraitBigSize: { w: 916, h: 1055 }, portraitBigScale: 0.65,
     quotes: ['심연이 부른다.', '검은 줄기여...', '그림자가 깊다.',
              '소멸하라.', '어둠은 모든 곳에 있다.', '빛은 거짓이다.'],
     animKeys: {
@@ -401,7 +401,7 @@ const HEROES = {
     },
     portraitSheet: 'hero_mage_bomber_idle', portraitSheetFrame: 0,
     portraitSheetSize: { w: 145, h: 165 }, portraitScale: 1,
-    portraitBig: 'lobby_mage_bomber', portraitBigSize: { w: 916, h: 1074 }, portraitBigScale: 0.63,
+    portraitBig: 'lobby_mage_bomber', portraitBigSize: { w: 792, h: 951 }, portraitBigScale: 0.63,
     quotes: ['폭탄이다! 폭탄!', '빵! 빵빵빵!', '심지에 불 붙였어!',
              '아 이 냄새~', '한 번만 더... 안 돼 두 번 더!', '폭탄 좀 더 없나?'],
     animKeys: {
@@ -427,7 +427,7 @@ const HEROES = {
     },
     portraitSheet: 'hero_archer_oneshot_idle', portraitSheetFrame: 0,
     portraitSheetSize: { w: 133, h: 201 }, portraitScale: 1,
-    portraitBig: 'lobby_archer_oneshot', portraitBigSize: { w: 969, h: 1126 }, portraitBigScale: 0.63,
+    portraitBig: 'lobby_archer_oneshot', portraitBigSize: { w: 857, h: 910 }, portraitBigScale: 0.63,
     quotes: ['...조준 완료.', '한 발, 한 명.', '숨 멈추고...',
              '관통한다.', '명중률 100%.', '놓치지 않아.'],
     animKeys: {
@@ -455,7 +455,7 @@ const HEROES = {
     goldPerHit: 1,
     portraitSheet: 'hero_warrior_bandit_idle', portraitSheetFrame: 0,
     portraitSheetSize: { w: 143, h: 176 }, portraitScale: 1,
-    portraitBig: 'lobby_warrior_bandit', portraitBigSize: { w: 904, h: 956 }, portraitBigScale: 0.62,
+    portraitBig: 'lobby_warrior_bandit', portraitBigSize: { w: 863, h: 975 }, portraitBigScale: 0.62,
     quotes: ['한 푼만 줍쇼!', '오늘 수입 어떨까~', '돈 되겠는데?',
              '치킨이 사라지면 안 돼!', '여기도 동전, 저기도 동전!', '한탕 하자!'],
     animKeys: {
@@ -481,7 +481,7 @@ const HEROES = {
     },
     portraitSheet: 'hero_warrior_dark_idle', portraitSheetFrame: 0,
     portraitSheetSize: { w: 145, h: 217 }, portraitScale: 1,
-    portraitBig: 'lobby_warrior_dark', portraitBigSize: { w: 952, h: 1148 }, portraitBigScale: 0.65,
+    portraitBig: 'lobby_warrior_dark', portraitBigSize: { w: 911, h: 1091 }, portraitBigScale: 0.65,
     quotes: ['어둠이 너를 삼킨다.', '...침묵하라.', '비키지 않으면 베어내겠다.',
              '두려워하라.', '쓸어버린다.', '내 길에 서지 마라.'],
     animKeys: {
@@ -508,7 +508,7 @@ const HEROES = {
     },
     portraitSheet: 'hero_healer_grandpa_idle', portraitSheetFrame: 0,
     portraitSheetSize: { w: 142, h: 184 }, portraitScale: 1,
-    portraitBig: 'lobby_healer_grandpa', portraitBigSize: { w: 943, h: 1177 }, portraitBigScale: 0.62,
+    portraitBig: 'lobby_healer_grandpa', portraitBigSize: { w: 839, h: 989 }, portraitBigScale: 0.62,
     quotes: ['아이고, 잠깐 가만있어봐.', '할애비가 고쳐주마.', '약 드시고 가셔!',
              '에구구... 다친 사람 어딨노.', '이거 한 방이면 끄떡없어!', '뼈에 좋은 거여.'],
     animKeys: {
@@ -533,7 +533,7 @@ const HEROES = {
     tauntRange: 78,
     portraitSheet: 'hero_tank_dandan_idle', portraitSheetFrame: 0,
     portraitSheetSize: { w: 150, h: 203 }, portraitScale: 1,
-    portraitBig: 'lobby_tank_dandan', portraitBigSize: { w: 1078, h: 1097 }, portraitBigScale: 0.65,
+    portraitBig: 'lobby_tank_dandan', portraitBigSize: { w: 867, h: 1008 }, portraitBigScale: 0.65,
     quotes: ['딴딴해!', '나에게 와라!', '꿈쩍도 안 한다!',
              '여기 있다, 이놈들아!', '내가 막는다.', '뚫어보시지!'],
     animKeys: {
@@ -558,7 +558,7 @@ const HEROES = {
     dashTrail: true,      // chase 중 잔상 ghost spawn
     portraitSheet: 'hero_assassin_bakso_idle', portraitSheetFrame: 0,
     portraitSheetSize: { w: 219, h: 230 }, portraitScale: 1,
-    portraitBig: 'lobby_assassin_bakso', portraitBigSize: { w: 1016, h: 1175 }, portraitBigScale: 0.62,
+    portraitBig: 'lobby_assassin_bakso', portraitBigSize: { w: 867, h: 970 }, portraitBigScale: 0.62,
     quotes: ['바람보다 빠르게!', '눈깜빡할 새에...', '슈웅!',
              '잡았다.', '여긴가, 저긴가!', '내 칼이 보였나?'],
     animKeys: {
