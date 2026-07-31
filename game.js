@@ -688,7 +688,7 @@ function introCreate() {
   scene.add.image(bubbleX, bubbleY, 'intro_bubble').setDepth(6).setDisplaySize(bubbleW, bubbleH);
 
   // 말풍선 텍스트 — 본문 중앙(화살표 영역 제외 우측으로 살짝)
-  scene.add.text(bubbleX + 6, bubbleY - 4, '해당 게임은 프로토타입\n버전입니다!\n정식 출시를 응원해주세요!', {
+  scene.add.text(bubbleX + 6, bubbleY - 4, '해당 게임은 프로토타입\n버전입니다!', {
     fontFamily: 'BMJUA', fontSize: '17px', color: '#2A1A0E',
     align: 'center', lineSpacing: 4,
   }).setOrigin(0.5).setDepth(7);
@@ -736,11 +736,6 @@ function introCreate() {
   // dim 풀스크린(어디든) 클릭으로도 진행
   dimBg.on('pointerup', advance);
 
-  // 회사 로고 (하단) — Icecat 자산 이미지
-  const logo = scene.add.image(GAME_W / 2, GAME_H - 40, 'intro_icecat_logo').setDepth(5);
-  // 원본 비율 유지하면서 가로 130px로 표시
-  const logoW = 130;
-  logo.setDisplaySize(logoW, logoW * (logo.height / logo.width));
 }
 
 function lobbyPreload() {
